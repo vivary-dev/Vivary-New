@@ -952,11 +952,11 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: site/package-lock.json
-      - name: install
-        run: npm ci
-        working-directory: site
       - name: audit high and critical site dependencies
         run: node scripts/audit.mjs
+        working-directory: site
+      - name: install
+        run: npm ci
         working-directory: site
       - name: site behavior and information architecture tests
         run: npm run test:site

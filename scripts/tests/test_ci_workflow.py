@@ -378,20 +378,20 @@ def _site_job_with(old: str, new: str) -> str:
 def test_missing_site_audit_gate_fails():
     message = _run(_workflow(_site_job_with(AUDIT_STEP, "")))
     assert message, "a workflow without the blocking audit must fail"
-    assert "site job step 4" in message and "node scripts/audit.mjs" in message
+    assert "site job step 3" in message and "node scripts/audit.mjs" in message
 
 
-def test_site_audit_must_follow_install():
-    message = _run(_workflow(_site_job_with(INSTALL_STEP + AUDIT_STEP, AUDIT_STEP + INSTALL_STEP)))
-    assert message, "auditing before the locked install must fail"
-    assert "site job step 3" in message and "npm ci" in message
+def test_site_audit_must_precede_install():
+    message = _run(_workflow(_site_job_with(AUDIT_STEP + INSTALL_STEP, INSTALL_STEP + AUDIT_STEP)))
+    assert message, "auditing after npm ci lets install scripts run first, so it must fail"
+    assert "site job step 3" in message and "node scripts/audit.mjs" in message
 
 
 def test_site_audit_must_run_in_site_directory():
     wrong_directory = AUDIT_STEP.replace("working-directory: site", "working-directory: .")
     message = _run(_workflow(_site_job_with(AUDIT_STEP, wrong_directory)))
     assert message, "auditing the repository root must fail"
-    assert "site job step 4" in message and "'working-directory': 'site'" in message
+    assert "site job step 3" in message and "'working-directory': 'site'" in message
 
 
 def test_site_audit_in_later_job_does_not_satisfy_contract():
@@ -534,7 +534,7 @@ def test_site_audit_step_must_have_no_other_keys():
     ):
         message = _run(_workflow(_site_job_with(AUDIT_STEP, changed)))
         assert message, f"a changed audit step must fail: {changed!r}"
-        assert "site job step 4" in message
+        assert "site job step 3" in message
 
 
 def test_site_job_must_not_continue_on_error():
@@ -587,7 +587,7 @@ def test_site_job_must_not_add_keys_after_its_steps():
 def test_site_job_must_not_gain_a_step():
     prepare = '      - name: prepare\n        run: echo "NODE_OPTIONS=--import ./x.mjs" >> "$GITHUB_ENV"\n'
     for job, expected in (
-        (_site_job_with(AUDIT_STEP, prepare + AUDIT_STEP), "site job step 4"),
+        (_site_job_with(AUDIT_STEP, prepare + AUDIT_STEP), "site job step 3"),
         (SITE_JOB_TEXT + prepare, "site job must have exactly 8 steps"),
     ):
         message = _run(_workflow(job))
@@ -675,6 +675,38 @@ def test_invalid_yaml_fails_closed():
     message = _run(_workflow(trailing_job="  broken: [unclosed\n"))
     assert message, "a workflow that does not parse must fail"
     assert "not valid YAML" in message
+
+
+def test_merge_keys_fail_closed():
+    for workflow in (
+        _workflow(_site_job_with(AUDIT_STEP, AUDIT_STEP + "        <<: {shell: 'true {0}'}\n")),
+        _workflow(SITE_JOB_TEXT + "    <<: {}\n"),
+        _workflow().replace("permissions:\n", "<<: {env: {NODE_OPTIONS: x}}\npermissions:\n", 1),
+    ):
+        message = _run(workflow)
+        assert message, "a merge key must fail"
+        assert "must not use a YAML merge key" in message
+
+
+def test_pinned_actions_accept_only_a_release_bump():
+    bumps = (
+        ("actions/checkout@v7.0.1", "actions/checkout@v7.0.2"),
+        ("actions/setup-node@v7", "actions/setup-node@v7.1.0"),
+        ("actions/checkout@v7.0.1", "actions/checkout@" + "0123456789abcdef" * 2 + "01234567"),
+    )
+    for old, new in bumps:
+        assert REAL_TEXT.count(old) > 1, old
+        assert _run(REAL_TEXT.replace(old, new)) is None, f"a Dependabot bump to {new} must pass"
+    for old, new in (
+        ("actions/checkout@v7.0.1", "actions/checkout@main"),
+        ("actions/checkout@v7.0.1", "someone/checkout@v7.0.1"),
+        ("actions/setup-node@v7", "actions/checkout@v7.0.2"),
+        ("actions/setup-node@v7", "actions/setup-node@v8"),
+        ("actions/checkout@v7.0.1", "actions/checkout@v7.0.2\n        with:\n          ref: main"),
+    ):
+        message = _run(_workflow(_site_job_with(f"uses: {old}\n", f"uses: {new}\n")))
+        assert message, f"{new!r} must fail"
+        assert "site job step" in message
 
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]

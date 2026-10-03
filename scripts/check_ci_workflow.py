@@ -26,9 +26,15 @@ PARSER_STEP = (
 # PyYAML reads YAML 1.1, where a bare `on` key is the boolean True.
 WORKFLOW_KEYS = ["name", True, "permissions", "jobs"]
 
-# The changes job decides whether the site job runs, and the site job runs the audit. Both are
-# pinned as parsed data: every key, every value, and every step in order. A comment line, a quoted
-# key, or an added step changes the parsed value, so it fails the contract.
+# Dependabot bumps the two actions these pins use, actions/checkout and actions/setup-node. A step
+# whose `uses` differs from its pin only by a release tag (vX.Y.Z) or a full commit SHA of the same
+# action still matches. Another ref, such as a branch, or any other change to the step does not.
+RELEASE_REF = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{40}")
+
+# The changes job decides whether the site job runs, and the site job runs the audit before npm ci,
+# so no install script runs first. Both jobs are pinned as parsed data: every key, every value, and
+# every step in order. The parser still reads a key written after a comment line, or written
+# quoted, spaced, or escaped, so no spelling hides an added key or step from the comparison.
 CHANGES_JOB = (
     {'name': 'changed paths',
      'runs-on': 'ubuntu-latest',
@@ -86,10 +92,10 @@ SITE_JOB = (
                 'with': {'node-version': '22',
                          'cache': 'npm',
                          'cache-dependency-path': 'site/package-lock.json'}},
-               {'name': 'install', 'run': 'npm ci', 'working-directory': 'site'},
                {'name': 'audit high and critical site dependencies',
                 'run': 'node scripts/audit.mjs',
                 'working-directory': 'site'},
+               {'name': 'install', 'run': 'npm ci', 'working-directory': 'site'},
                {'name': 'site behavior and information architecture tests',
                 'run': 'npm run test:site',
                 'working-directory': 'site'},
@@ -147,9 +153,13 @@ def job_block(text: str, name: str) -> str:
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
-    """Read YAML safely, and refuse a mapping that repeats a key, which PyYAML reads as its last value."""
+    """Read YAML safely. Refuse a repeated key, which PyYAML reads as its last value, and a merge key."""
 
     def construct_mapping(self, node, deep=False):
+        require(
+            all(key.tag != "tag:yaml.org,2002:merge" for key, _ in node.value),
+            "workflow must not use a YAML merge key (<<)",
+        )
         keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
         repeated = sorted({str(key) for key in keys if keys.count(key) > 1})
         require(not repeated, f"workflow repeats the mapping key {', '.join(repeated)}")
@@ -158,6 +168,16 @@ class UniqueKeyLoader(yaml.SafeLoader):
 
 def key_names(mapping) -> str:
     return ", ".join("on" if key is True else str(key) for key in mapping)
+
+
+def unbumped(step, pinned_step):
+    """Return `step` with its pinned `uses` when only a release bump of the same action changed it."""
+    if not isinstance(step, dict) or not isinstance(step.get("uses"), str) or "uses" not in pinned_step:
+        return step
+    action, _, ref = step["uses"].partition("@")
+    if pinned_step["uses"].partition("@")[0] == action and RELEASE_REF.fullmatch(ref):
+        return {**step, "uses": pinned_step["uses"]}
+    return step
 
 
 def check_parsed(text: str) -> None:
@@ -188,7 +208,10 @@ def check_parsed(text: str) -> None:
         steps = job["steps"]
         require(isinstance(steps, list), f"{name} job steps must be a list")
         for number, (step, pinned_step) in enumerate(zip(steps, pinned["steps"]), start=1):
-            require(repr(step) == repr(pinned_step), f"{name} job step {number} must be {pinned_step!r}")
+            require(
+                repr(unbumped(step, pinned_step)) == repr(pinned_step),
+                f"{name} job step {number} must be {pinned_step!r}",
+            )
         require(
             len(steps) == len(pinned["steps"]),
             f"{name} job must have exactly {len(pinned['steps'])} steps",

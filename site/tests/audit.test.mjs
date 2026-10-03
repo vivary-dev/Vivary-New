@@ -87,24 +87,58 @@ const runAudit = (fixture) => {
   }
 };
 
-test('a site .npmrc fails the audit', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'site-audit-npmrc-'));
+// Imports a copy of the command from <repo>/site/scripts in a temp folder, so a test can add the
+// files npm reads around site/ without writing the real checkout.
+const withCommandCopy = async (check) => {
+  const repo = mkdtempSync(path.join(tmpdir(), 'site-audit-npmrc-'));
   try {
-    mkdirSync(path.join(root, 'scripts'));
+    const site = path.join(repo, 'site');
+    mkdirSync(path.join(site, 'scripts'), { recursive: true });
     for (const name of ['audit-command.mjs', 'audit-policy.mjs']) {
-      copyFileSync(new URL(`../scripts/${name}`, import.meta.url), path.join(root, 'scripts', name));
+      copyFileSync(new URL(`../scripts/${name}`, import.meta.url), path.join(site, 'scripts', name));
     }
-    const copy = await import(pathToFileURL(path.join(root, 'scripts', 'audit-command.mjs')).href);
+    const copy = await import(pathToFileURL(path.join(site, 'scripts', 'audit-command.mjs')).href);
     const run = () => copy.auditSite({ now: new Date('2026-10-10T00:00:00Z'), allowlist, npmAudit: recorded('site') });
-    assert.equal(run().exitCode, 0);
-    writeFileSync(path.join(root, '.npmrc'), 'registry=https://mirror.example/\n');
+    assert.equal(run().exitCode, 0, 'the copy passes before a file is added');
+    check({ repo, site, run });
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+};
+
+test('a site .npmrc fails the audit', () =>
+  withCommandCopy(({ site, run }) => {
+    writeFileSync(path.join(site, '.npmrc'), 'strict-ssl=false\n');
     const result = run();
     assert.equal(result.exitCode, 1);
     assert.match(result.output, /^site\/\.npmrc exists\. /);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+  }));
+
+test('a repository root .npmrc fails the audit', () =>
+  withCommandCopy(({ repo, run }) => {
+    writeFileSync(path.join(repo, '.npmrc'), 'strict-ssl=false\n');
+    const result = run();
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /^The repository root \.npmrc exists\. /);
+  }));
+
+test('a root package.json that declares workspaces fails the audit', () =>
+  withCommandCopy(({ repo, run }) => {
+    const manifest = path.join(repo, 'package.json');
+    writeFileSync(manifest, '{ "name": "root", "private": true }\n');
+    assert.equal(run().exitCode, 0, 'a root package.json without workspaces passes');
+    for (const [content, message] of [
+      ['{ "workspaces": ["site"] }\n', /^The repository root package\.json declares workspaces, /],
+      ['{ "workspaces": ["*"] }\n', /^The repository root package\.json declares workspaces, /],
+      ['{ "workspaces": { "packages": ["site"] } }\n', /^The repository root package\.json declares workspaces, /],
+      ['{ "workspaces": ', /^The repository root package\.json is not valid JSON, /],
+    ]) {
+      writeFileSync(manifest, content);
+      const result = run();
+      assert.equal(result.exitCode, 1, content);
+      assert.match(result.output, message);
+    }
+  }));
 
 test('the live allowlist is valid today', () => {
   assert.deepEqual(auditFailures(report('offline'), allowedAdvisories, utcDate(new Date())), []);
