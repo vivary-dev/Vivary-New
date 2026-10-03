@@ -202,7 +202,9 @@ const dialogStub = `
   export const DialogDescription = ({ children }) => <p>{children}</p>;`;
 const stubs = new Map([
   [path.join(CLIENT, "agent-page", "use-jobs.js"), `
-    export function useAutomationRuns() { return { data: globalThis.__automationRuns, isLoading: false, error: null }; }`],
+    export function useAutomationRuns() { return { data: globalThis.__automationRuns, isLoading: false, error: null }; }
+    export const firstLoading = () => false;
+    export const loadFailed = () => false;`],
   [path.join(CLIENT, "i18n.js"), i18nStub],
   [path.join(CLIENT, "agent-chat.js"), `
     export function requestAgentChatThreadOpen(detail) { globalThis.__openRequests.push(detail); }`],
@@ -871,6 +873,38 @@ test("a list that never loaded keeps its load error while a timed retry runs", a
     await timers.fire(30_000);
     assert.doesNotMatch(tab.section(0).text, loadError, "a successful retry clears the load error");
     assert.equal(tab.section(0).rows, 1, "a successful retry lists the automation");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("Past runs that never loaded keep their load error while a timed retry runs", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const rows = { personal: [afterTick], organization: [], failing: ["list-automation-runs personal"] };
+  const tab = await proof.mountJobsTab(rows);
+  const loadError = /Could not load run history/;
+  try {
+    await tab.openDetails();
+    assert.match(tab.belowPastRuns(), loadError, "a failed first runs load shows the load error");
+    rows.hold = true;
+    await timers.fire(30_000);
+    assert.match(tab.belowPastRuns(), loadError, "the runs load error stays while a timed retry is in flight");
+    assert.doesNotMatch(tab.belowPastRuns(), /Loading/, "a timed retry of runs that never loaded shows no Loading");
+    rows.hold = false;
+    await tab.release();
+    assert.match(tab.belowPastRuns(), loadError, "the runs load error stays after the retry fails");
+    assert.doesNotMatch(tab.belowPastRuns(), /Loading/, "a failed runs retry shows no Loading");
+    rows.runs = [pastRun];
+    rows.failing = [];
+    await timers.fire(30_000);
+    assert.doesNotMatch(tab.belowPastRuns(), loadError, "a successful retry clears the runs load error");
+    assert.equal(tab.pastRuns(), 1, "a successful retry lists the run");
   } finally {
     await tab.unmount();
   }
