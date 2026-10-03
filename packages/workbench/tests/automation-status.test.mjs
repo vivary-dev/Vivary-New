@@ -328,7 +328,7 @@ test("a running mark no lease covers lists the end of the run time limit the app
   try {
     rows = byName(await listAutomations.default.run({ scope: "personal" }, ctx));
   } finally {
-    delete process.env.AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS; // guard:allow-env-credential - Removes the test-only time limit set above.
+    delete process.env.AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS; // guard:allow-env-mutation - Removes the test-only run time limit set above.
   }
   assert.deepEqual([rows["long-limit"].nextRun, rows["long-limit"].schedulerWait],
     [null, { reason: "stalled-run", resumesAfter: iso(lastRun + 30 * minute) }]);
