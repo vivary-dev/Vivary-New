@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { fork, spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { writeFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -54,9 +54,23 @@ async function until(check, description, timeoutMs = 3000) {
 if (role === "preview-service-server") {
   const root = process.argv[3];
   const url = process.argv[4];
-  const { createProjectPreviewService } = await import("../server/project-preview.ts");
+  const { createProjectPreviewService, resolveLauncher } = await import("../server/project-preview.ts");
+  // CI already installs pnpm globally. Scope the real resolver to that installation,
+  // since the Node distribution's sibling Corepack shim would need a network fetch.
+  const npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  const prefixResult = spawnSync(process.execPath, [npmCli, "prefix", "--global"], {
+    encoding: "utf8", timeout: 5000, windowsHide: true,
+  });
+  assert.equal(prefixResult.status, 0, prefixResult.error?.message || prefixResult.stderr);
+  const globalPrefix = prefixResult.stdout.trim();
+  assert.ok(path.isAbsolute(globalPrefix), "npm reports its existing global installation");
+  const installedPnpm = path.join(globalPrefix, "node_modules", "pnpm");
+  const manifest = JSON.parse(await readFile(path.join(installedPnpm, "package.json"), "utf8"));
+  assert.equal(manifest.version, process.argv[5], "installed pnpm matches the existing CI pin");
+  const entrypoint = await realpath(path.join(installedPnpm, "bin", "pnpm.cjs"));
   const service = createProjectPreviewService({
     mode: () => "local",
+    resolveLauncher: (manager, root) => resolveLauncher(manager, root, [globalPrefix]),
     resolveWorkspace: async () => ({
       root, label: "preview-exit", projectId: "preview-exit", actorId: "actor",
       bindingId: "binding", bindingRevision: 1, policyRevision: 1, rootId: "root",
@@ -66,6 +80,7 @@ if (role === "preview-service-server") {
   const owner = { userEmail: "owner@local.vivary.test", orgId: "local", caller: "frontend" };
   const review = await service.run({ operation: "review", projectId: "preview-exit", script: "dev", url }, owner);
   assert.equal(review.code, "review");
+  assert.equal(review.launcher, [process.execPath, entrypoint].join(" "), "the real resolver selects installed pnpm, not Corepack");
   const started = await service.run({
     operation: "start", projectId: "preview-exit", script: "dev", url,
     requestId: "7fd84cba-a9cc-492f-8bfb-32db6d505ac7",
@@ -233,7 +248,7 @@ if (role === "preview-service-server") {
       "  createServer((_req, res) => res.end('ready')).listen(Number(process.env.PORT), process.env.HOST);",
       "});",
     ].join("\n"));
-    const server = fork(fileURLToPath(import.meta.url), ["preview-service-server", directory, "http://127.0.0.1:" + port + "/"], {
+    const server = fork(fileURLToPath(import.meta.url), ["preview-service-server", directory, "http://127.0.0.1:" + port + "/", pnpmVersions[0]], {
       execArgv: ["--import", "tsx"], detached: true, windowsHide: true,
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
