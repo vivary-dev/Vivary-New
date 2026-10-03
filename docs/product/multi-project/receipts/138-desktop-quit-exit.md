@@ -1,10 +1,45 @@
 # Desktop quit and Windows crash cleanup
 
-Date: 2026-10-03. Issue: [#138](https://github.com/vivary-dev/vivary/issues/138).
-Tested runtime source: `d8cb7665a2d09a0ab46af137db25938ca0f23c8f`.
-Base: `c17a8cae993d6abb3a87c4949b2a047abb462224`.
+Verified: 2026-10-03. Issue: [#138](https://github.com/vivary-dev/vivary/issues/138). PR: [#173](https://github.com/vivary-dev/vivary/pull/173).
+Accepted runtime source: `4f7a039407e63bbbcb7717ffebf767a523f5c365`.
+Integrated base: `0794b941e3735db5ff7ff0e1d98903ea2706c5dc`.
 
-**Merge remains blocked pending native and packaged acceptance of the approved containment correction.** The last tested package passed normal quit but left an actual preview tree alive after unexpected server exit. The [server-first P1](https://github.com/vivary-dev/vivary/pull/173#discussion_r4171749360) remains unresolved. This receipt is not merge or release acceptance.
+**The fresh private Windows package passed all required shutdown and preview-cleanup journeys.** This supersedes the earlier `d8cb7665` server-first failure below. Documentation-only closeout preserves the tested runtime. Release authority and the contributor approval and session-capture gates are separate from this acceptance record.
+
+## Final 4f7a0394 acceptance
+
+Zo built from clean source after installing the exact frozen PR #175 patch and lockfile. The installed Core patch hash begins `c8415a61`. No dependency versions changed during integration. The actual TypeScript checker, all four applicable Zo CI waves, and all nine [GitHub CI jobs](https://github.com/vivary-dev/vivary/actions/runs/37130832501) passed. The real built desktop server exited with code zero in 17.08 ms. Browser access, owner sign-in and hosted MCP application checks passed.
+
+The Windows ZIP is 222,641,997 bytes with SHA-256 `fe613b34d9f3c52883d2218c65db34f15e3eb14e26622da48dedec800e65969b`. Transfer hash, archive integrity, extraction bounds, preview-owner bridge digest and license passed. Package metadata records clean `4f7a0394` source, zero tracked overlays and a matching source snapshot. Its Workbench output remains labeled prebuilt with `sourceCommitVerified: false`. The separate clean build and built-server receipts establish the source-to-output relationship. Runtimes are Node 24.19.0, Electron 44.3.0 and Python 3.12.14.
+
+| Fresh packaged journey | Main process exit | Complete observation | Result |
+| --- | ---: | ---: | --- |
+| Idle, normal window close | 573.01 ms | All package processes gone in 760.50 ms | Passed |
+| Active scheduled run, normal close | 318.73 ms | All package processes gone in 449.30 ms | Passed |
+| Active webhook run, normal close | 301.20 ms | All package processes gone in 454.31 ms | Passed |
+| Active preview, normal close | 354.40 ms | Package processes gone in 522.81 ms. Full 14-identity and closed-port observation in 2,023.78 ms | Passed |
+| Abrupt Electron-only termination with active preview | Deliberate root termination | All 14 recorded identities gone and preview port closed in 1,758.38 ms | Passed |
+| Abrupt server-only termination | Electron remained alive | All 16 recorded server-tree identities gone in 612.23 ms | Passed |
+
+The active preview used the unchanged registered test root and a real pnpm command, command shell, Node HTTP preview and ordinary non-detached Node child. The server-first journey also kept a real Code worker and an offline synthetic Codex CLI active, and held an actual bundled Python catalog command through the existing bounded observer. The preview Python owner, manager, shell, preview, child, Code worker, synthetic CLI and original Python command were all gone before manual cleanup. The observer exited zero. Subsequent cleanup closed only the surviving Electron application. Normal and parent-loss checks likewise recorded identities and results before their cleanup blocks.
+
+Schedule and webhook checks used separate fresh profiles and a synthetic loopback response stream. Each required the actual run and linked agent to be running before normal close. SQLite then recorded that same run as interrupted and its agent as aborted for shutdown. The scheduled run lease was deleted, with no held lease remaining. The webhook task returned from processing to pending, refunded its claimed attempt from 1 to 0, retained its dispatch count and had no completion time. These checks establish application dispatch, persistence and shutdown, with no claim of real provider or external tool effects. They do not add acceptance for the separate #141 Details-refresh journey.
+
+The original registered directory, original profile and grants were preserved. All five original file hashes and the exact five-file count matched after restoration. Six temporary fixture files were removed. Three pnpm-generated files were archived and hash-checked before removal. The synthetic CLI mode was restored, and the application, preview and gateway fixtures were stopped.
+
+## Review corrections and verification limits
+
+The [Windows job](https://github.com/vivary-dev/vivary/actions/runs/37130832501/job/111225453837) passed two startup-cancellation tests, the shutdown suite with 28 passes and one unrelated skip, and Core with 806 passes and 71 skips. Its actual preview server-death, Stop and natural-command-exit cases each recorded no surviving descendants. The earlier full Linux Core run on unchanged Core source recorded 870 passes, seven skips and 40 subtest passes on an existing supported tmpfs mount. The failed earlier run on an unsupported filesystem remains failed setup evidence.
+
+The startup callback refuses command execution only when host EOF or a pipe failure has already been observed before resume. Its native regression uses an actual closed pipe and suspended process, with a control that executes when only the callback is removed. It does not establish an atomic guarantee against host death after that check. The no-PID spawn regression first failed with the port still reserved, then passed after the non-launch released only its own reservation. A real launched-owner cleanup failure remains retained and unavailable. The public schema and Windows UI identify the PID as the preview owner. The Core test adds its own source import path, and isolated collection passes.
+
+Three private observer issues were corrected without changing the product or rebuilding the package. Windows PowerShell 5 lost a redirected child's exit code when first read after exit. Retaining its handle preserved the actual nonzero control result. A process sample raced an exiting process, so polling now compares one PID and creation-time snapshot and retains unverifiable identities. PowerShell 7 converted JSON timestamps to typed dates, and reparsing their culture strings shifted UTC by six hours. Typed UTC normalization preserves the exact identity checks and tolerance. The corrected final crash wrapper exited zero. Earlier attempts remain failures or pre-action refusals, even where their process observations showed no survivors. A renderer-startup refusal was retried only after readiness, before any termination.
+
+The separately approved PR #178 dependency correction is integrated. Site audit and build passed without PR #176's rejected waiver. PR #175 is integrated with its patch, lockfile and tests unchanged. Historical failures, superseded candidates and their original limits remain below.
+
+## Historical checkpoints
+
+The following records describe earlier source boundaries. Their unresolved gates and remaining-work statements apply to those earlier checkpoints, not to the accepted `4f7a0394` runtime above. The last failed packaged runtime was `d8cb7665a2d09a0ab46af137db25938ca0f23c8f` on base `c17a8cae993d6abb3a87c4949b2a047abb462224`.
 
 ## Approved containment implementation
 

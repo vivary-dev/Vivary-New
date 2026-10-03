@@ -223,9 +223,13 @@ server exits nonzero if it returns. Successful cleanup exits before the fallback
 Direct CLI and
 non-Windows cleanup failures still exit with failure after all stops settle.
 POSIX also cleans the owned process group if the server exits. An unexpected
-Windows server crash was observed to leave a real shell-launched preview and its
-ordinary child alive on the d8cb7665 package. This remains an unresolved merge
-blocker. Active-preview normal quit and parent-loss package checks remain unrun.
+Windows server crash left a shell-launched preview and its ordinary child alive
+on the historical d8cb7665 package. Each Windows preview now has a bundled Python
+owner that retains Core's kill-on-close job around the manager and descendants.
+The fresh 4f7a0394 package passes server-first cleanup while Electron remains alive,
+active-preview normal close and parent loss, and idle, scheduled and webhook quit.
+Process observations precede manual cleanup. The original registered fixture and
+grants are preserved.
 The shutdown regression exercises controlled Windows cleanup failures with a
 real descendant and `taskkill /T /F` when run on Windows. Packaged acceptance
 and its limits belong to the [issue receipt](../../docs/product/multi-project/receipts/138-desktop-quit-exit.md).

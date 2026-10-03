@@ -293,18 +293,18 @@ browser tab open.
 
 Quitting Vivary during a run ends the run, and **Details** shows it as interrupted.
 Builds with the [issue #138](https://github.com/vivary-dev/vivary/issues/138) fix exit
-after cleanup instead of waiting for the desktop fallback. The private `5ce5468c`
-Windows check closed an active scheduled run in 330 ms and an active webhook run
-in 310 ms, with all observed application processes gone within 583 ms and 559 ms.
-Its idle close took 4.2 seconds. These are measured runs, not a fixed close-time
-guarantee. The 15-second fallback remains configured. Windows desktop shutdown
-keeps the server alive until successful cleanup or that parent fallback. If the
-desktop process disconnects, the detached server gives cleanup 15 seconds before attempting
-to stop its own process tree. The fresh `d8cb7665` package passed idle, scheduled and webhook normal quits,
-but an unexpected server exit left a real preview and its child alive. Active-preview
-normal quit and parent-loss acceptance remain unrun. The unresolved failure and
-remaining checks are recorded in the
-[acceptance receipt](product/multi-project/receipts/138-desktop-quit-exit.md).
+after cleanup instead of waiting for the desktop fallback. The private `4f7a0394`
+Windows package closed idle, active scheduled and active webhook runs in 573, 319
+and 301 ms. All observed package processes were gone within 761, 450 and 455 ms.
+Active-preview normal close and abrupt Electron loss also removed the recorded
+preview tree and closed its port. Terminating only the server removed its complete
+recorded descendant tree in 613 ms while Electron remained alive. The earlier
+`d8cb7665` crash failure is superseded by these checks.
+These are measured runs, not fixed timing guarantees. The 15-second fallback remains
+configured. Pending or failed cleanup retains the server for the parent's tree kill.
+If Electron disconnects, the server gives cleanup 15 seconds before attempting
+to stop its own tree. The [acceptance receipt](product/multi-project/receipts/138-desktop-quit-exit.md)
+records the package, persistence outcomes, controls and historical failures.
 The next launch checks schedules about 70
 seconds after it starts. If Vivary was ended without quitting, for example from Task
 Manager, the run shows as running, and that automation waits up to 10 minutes after the
