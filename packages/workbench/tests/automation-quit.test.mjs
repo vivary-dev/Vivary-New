@@ -41,11 +41,11 @@ globalThis.setTimeout = (handler, delay, ...args) => {
 
 const coreRoot = await realpath(new URL("../node_modules/@agent-native/core", import.meta.url));
 const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relative)).href);
-const [scheduler, runHistory, { defineAutomation }, { getDbExec }, { resourceGetByPath, resourcePut },
+const [scheduler, runHistory, { defineAutomation, updateAutomation }, { getDbExec }, { resourceGetByPath, resourcePut },
   { parseJobResource, patchJobFrontmatterFields }, { initTriggerDispatcher }, webhookTask,
   { setInProcessIntegrationTaskRunner }, { insertPendingTask }, { retryStuckPendingTasks },
-  listAutomations, { AUTOMATION_SCHEDULER_LEASE_MS, acquireAutomationRunLease, ensureHealthTable,
-    releaseAutomationRunLease }] = await Promise.all([
+  listAutomations, { AUTOMATION_SCHEDULER_LEASE_MS, acquireAutomationRunLease, acquireAutomationSchedulerLease,
+    ensureHealthTable, releaseAutomationRunLease, releaseAutomationSchedulerLease }] = await Promise.all([
   load("jobs/scheduler.js"),
   load("jobs/run-history.js"),
   load("automations/service.js"),
@@ -750,6 +750,99 @@ test("the list names no next run while a dead scanner's lease blocks every scan"
   assert.ok(blocked.nextRun === null || Date.parse(blocked.nextRun) >= resumesAt,
     `the list named a next run while a dead scanner's lease blocks every scan (${blocked.nextRun}, lease until ${
       new Date(resumesAt).toISOString()})`);
+});
+
+const scheduleList = async appId => Object.fromEntries((await listAutomations.default.run({ scope: "personal" },
+  { userEmail: owner, appId })).map(row => [row.name, row]));
+// An hourly schedule whose occurrence is `minutes` from now, so a case never depends on the time of day.
+const hourlyIn = minutes => `${(new Date().getUTCMinutes() + minutes) % 60} * * * *`;
+const nextRunOf = row => [row.nextRun, row.schedulerWait];
+
+test("a run lease that stopped renewing lists when scheduling resumes, and the reset lists its next run", async () => {
+  await defineScheduled("stalled-app", "stalled", hourlyIn(5));
+  const lastRun = Date.now() - 5 * 60_000;
+  await patchStored("stalled", { lastStatus: "running", lastRun: new Date(lastRun).toISOString() });
+  const key = runLeaseKey("stalled");
+  assert.ok(await acquireAutomationRunLease({ key }), "this process holds the run lease");
+  await getDbExec().execute({ sql: "UPDATE automation_scheduler_health SET updated_at = ? WHERE id = ?",
+    args: [Date.now() - 3 * 60_000, `run:${key}`] });
+  const { leaseExpiresAt } = await runLeaseRow("stalled");
+  assert.deepEqual(nextRunOf((await scheduleList("stalled-app")).stalled), [null, { reason: "stalled-run",
+    resumesAfter: new Date(Math.max(leaseExpiresAt, lastRun + 10 * 60_000)).toISOString() }],
+  "a lease not written for 3 minutes lists when scheduling resumes");
+
+  await getDbExec().execute({ sql: "UPDATE automation_scheduler_health SET lease_expires_at = ? WHERE id = ?",
+    args: [Date.now() - 1, `run:${key}`] });
+  await patchStored("stalled", { lastRun: minutesAgo(11) });
+  await scheduler.processRecurringJobs(nextLaunch("stalled-app"));
+  const reset = await stored("stalled");
+  assert.equal(reset.lastStatus, "error", "a tick reset the mark once the lease and the time limit passed");
+  assert.deepEqual(nextRunOf((await scheduleList("stalled-app")).stalled), [reset.nextRun, null],
+    "after the reset the list names the stored next run");
+});
+
+test("a live run hides a next run it can delay and keeps a later one", async t => {
+  await defineScheduled("live-list-app", "live-minute");
+  await defineScheduled("live-list-app", "live-hourly", hourlyIn(30));
+  await makeDue("live-minute");
+  const { child, report, exited } = spawnChild("hold", "live-list-app");
+  t.after(async () => {
+    child.kill("SIGKILL");
+    await exited;
+  });
+  const { running } = await report;
+  assert.equal(running, "live-minute");
+  const key = runLeaseKey("live-hourly");
+  const hourlyOwner = await acquireAutomationRunLease({ key });
+  assert.ok(hourlyOwner, "this process holds the hourly automation's run lease");
+  try {
+    await patchStored("live-hourly", { lastStatus: "running", lastRun: new Date().toISOString() });
+    const rows = await scheduleList("live-list-app");
+    assert.deepEqual(nextRunOf(rows["live-minute"]), [null, { reason: "run", resumesAfter: null }],
+      "a live run hides the next minute");
+    assert.equal(rows["live-hourly"].schedulerWait, null, "a live run leaves an occurrence it cannot delay");
+    assert.ok(Date.parse(rows["live-hourly"].nextRun) - Date.now() > 25 * 60_000,
+      `the hourly automation keeps its hour (${rows["live-hourly"].nextRun})`);
+  } finally {
+    await releaseAutomationRunLease({ key, owner: hourlyOwner });
+  }
+});
+
+test("a live scan's scheduler lease changes no listed row", async () => {
+  await defineScheduled("scan-list-app", "scanned");
+  await patchStored("scanned", { nextRun: new Date(Date.now() + 3 * 60_000).toISOString() });
+  const before = await scheduleList("scan-list-app");
+  const leaseOwner = await acquireAutomationSchedulerLease({ appId: "scan-list-app" });
+  assert.ok(leaseOwner, "this process holds the scheduler lease, as a scan does");
+  try {
+    assert.deepEqual(await scheduleList("scan-list-app"), before, "a lease its holder still writes changes no row");
+  } finally {
+    await releaseAutomationSchedulerLease({ appId: "scan-list-app", owner: leaseOwner });
+  }
+});
+
+test("a dead scanner's lease leaves paused and event automations as they were", async () => {
+  await defineScheduled("stuck-controls-app", "stuck-due");
+  await makeDue("stuck-due");
+  await defineScheduled("stuck-controls-app", "stuck-paused");
+  await updateAutomation({ userEmail: owner, appId: "stuck-controls-app" }, { scope: "personal", name: "stuck-paused",
+    enabled: false });
+  await defineAutomation({ userEmail: owner, appId: "stuck-controls-app" }, { scope: "personal", name: "stuck-event",
+    body: "Summarize the event.", triggerType: "event", event: "test.event.fired" });
+  const before = await scheduleList("stuck-controls-app");
+  const takenAt = Date.now() - 2 * 60_000;
+  await ensureHealthTable();
+  await getDbExec().execute({
+    sql: `INSERT INTO automation_scheduler_health (id, app_id, org_id, last_checked_at, last_dispatched_at, last_error,
+      runtime, updated_at, lease_owner, lease_expires_at) VALUES (?, ?, NULL, ?, NULL, NULL, 'recurring-jobs', ?, ?, ?)`,
+    args: ["stuck-controls-app:global", "stuck-controls-app", takenAt, takenAt, randomBytes(16).toString("hex"),
+      takenAt + AUTOMATION_SCHEDULER_LEASE_MS],
+  });
+  const after = await scheduleList("stuck-controls-app");
+  assert.deepEqual(nextRunOf(after["stuck-due"]), [null, { reason: "scheduler",
+    resumesAfter: new Date(takenAt + AUTOMATION_SCHEDULER_LEASE_MS).toISOString() }], "the lease blocks a due automation");
+  assert.deepEqual(nextRunOf(after["stuck-paused"]), [null, null], "a paused automation lists no next run and no wait");
+  assert.deepEqual(after["stuck-event"], before["stuck-event"], "an event automation lists as before");
 });
 
 // Trigger runs at quit: an event run and webhook call A are in flight and call B waits behind A. The child exits as

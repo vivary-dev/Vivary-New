@@ -3011,7 +3011,7 @@ index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..a93c8008c7fead57e27f0b5f87540aa2
                  const pageOrigin = typeof window !== "undefined" && window.location?.origin
                      ? window.location.origin
 diff --git a/dist/client/agent-page/AgentJobsTab.js b/dist/client/agent-page/AgentJobsTab.js
-index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81badc13c851f 100644
+index 8faa0bc883197d5e0e03469947ef0854cbf671ab..64863ced3f4a21c42f58e3d83d6c4b53415da916 100644
 --- a/dist/client/agent-page/AgentJobsTab.js
 +++ b/dist/client/agent-page/AgentJobsTab.js
 @@ -1,11 +1,13 @@
@@ -3050,7 +3050,66 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
  function describeTrigger(entry, t) {
      if (entry.kind === "automation" && entry.triggerType === "event") {
          return t("jobs.automationEventDetails", {
-@@ -100,11 +107,30 @@ function detailsFields(entry, t, formatDateTime, scheduleFiring) {
+@@ -49,11 +56,13 @@ function describeTrigger(entry, t) {
+  * promises to run it, so it must never be presented with more confidence than
+  * the scheduler check earned. Three answers, three phrasings: a known-dead
+  * scheduler replaces the date, an unverified one qualifies it, and a confirmed
+- * one shows it plainly.
++ * one shows it plainly. Vivary #140: while a lease or an unfinished run keeps
++ * the scheduler from acting on the entry, the list sends a wait instead of a
++ * date, and Details shows when scheduling resumes.
+  */
+ function nextRunValue(entry, t, formatDateTime, scheduleFiring, unset) {
+     const formatted = formatDateTime(entry.resource.nextRun);
+-    if (entry.triggerType !== "schedule" || scheduleFiring === "fires") {
++    if (entry.triggerType !== "schedule") {
+         return formatted ?? unset;
+     }
+     if (scheduleFiring === "never") {
+@@ -61,6 +70,13 @@ function nextRunValue(entry, t, formatDateTime, scheduleFiring, unset) {
+             defaultValue: "Never — no scheduler in this deploy",
+         });
+     }
++    // A row from a server without the field reads as no wait.
++    if (entry.resource.schedulerWait) {
++        return schedulerWaitValue(entry.resource.schedulerWait, t, formatDateTime);
++    }
++    if (scheduleFiring === "fires") {
++        return formatted ?? unset;
++    }
+     return formatted
+         ? t("jobs.nextRunSchedulerUnknown", {
+             defaultValue: "{{date}} — unconfirmed, the scheduler check failed",
+@@ -70,6 +86,28 @@ function nextRunValue(entry, t, formatDateTime, scheduleFiring, unset) {
+             defaultValue: "Unknown — the scheduler check failed",
+         });
+ }
++function schedulerWaitValue(wait, t, formatDateTime) {
++    if (wait.reason === "run") {
++        return t("jobs.nextRunAfterRun", {
++            defaultValue: "After the current run finishes",
++        });
++    }
++    if (Date.parse(wait.resumesAfter) <= Date.now()) {
++        return t("jobs.nextRunWaitCheck", {
++            defaultValue: "Waiting for the next schedule check",
++        });
++    }
++    const date = formatDateTime(wait.resumesAfter);
++    return wait.reason === "stalled-run"
++        ? t("jobs.nextRunAfterStalledRun", {
++            defaultValue: "Scheduling resumes after {{date}}, when an unfinished run times out",
++            date,
++        })
++        : t("jobs.nextRunAfterSchedulerLease", {
++            defaultValue: "Scheduling resumes after {{date}}, when an interrupted schedule check times out",
++            date,
++        });
++}
+ function detailsFields(entry, t, formatDateTime, scheduleFiring) {
+     const resource = entry.resource;
+     const unset = t("jobs.notSet", { defaultValue: "—" });
+@@ -100,11 +138,30 @@ function detailsFields(entry, t, formatDateTime, scheduleFiring) {
          });
      }
      if (entry.kind === "automation" && entry.triggerType === "webhook") {
@@ -3082,7 +3141,7 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
      }
      fields.push({
          label: t("jobs.nextRun", { defaultValue: "Next run" }),
-@@ -160,7 +186,9 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -160,7 +217,9 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
          ? `agent-jobs:organization-create:${organizationId}`
          : undefined;
      const [deleteTarget, setDeleteTarget] = useState(null);
@@ -3093,7 +3152,7 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
      const [scheduleTarget, setScheduleTarget] = useState(null);
      const [runTarget, setRunTarget] = useState(null);
      const formatDateTime = (value) => {
-@@ -181,6 +209,24 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -181,6 +240,24 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
          ...listRecurringJobs(organizationJobsQuery.data ?? []),
          ...listAutomations(organizationAutomationsQuery.data ?? []),
      ];
@@ -3118,7 +3177,7 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
      const mutationPending = personalJobsMutation.isPending ||
          personalAutomationsMutation.isPending ||
          organizationJobsMutation.isPending ||
-@@ -206,7 +252,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -206,7 +283,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
              personalJobsMutation.mutate(input, options);
          }
      };
@@ -3127,7 +3186,7 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
                                      defaultValue: "You can manage automations you created.",
                                  }) })) : null, _jsx(AgentAskPopover, { context: organizationAutomationCreationContext(), draftScope: organizationDraftScope, prompt: t("jobs.organizationPrompt", {
                                      defaultValue: "Create a shared organization automation that does this: ",
-@@ -216,6 +262,8 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -216,6 +293,8 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
                                      defaultValue: "New automation",
                                  }) })] })) : null] }), errors.length > 0 ? (_jsx("p", { className: "text-sm text-destructive", children: t("jobs.loadError", {
                      defaultValue: "Could not load all automations.",
@@ -3136,7 +3195,7 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
                  }) })) : null, loading && entries.length === 0 ? (_jsxs("div", { className: "flex items-center gap-2 text-sm text-muted-foreground", "aria-busy": "true", children: [_jsx(IconLoader2, { className: "size-4 animate-spin" }), t("jobs.loading", { defaultValue: "Loading…" })] })) : entries.length === 0 && errors.length === 0 ? (_jsx(AgentEmptyState, { icon: IconCalendarEvent, title: organization
                      ? t("jobs.organizationEmptyTitle", {
                          defaultValue: "No organization automations yet",
-@@ -272,19 +320,19 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -272,19 +351,19 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
                                                              : t("jobs.paused", { defaultValue: "Paused" }) }), resource.lastStatus ? (_jsx("span", { className: "rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground", children: resource.lastStatus })) : null] }), _jsx("p", { className: "mt-1 text-sm text-muted-foreground", children: triggerDescription }), _jsx("p", { className: "hidden", children: instructions }), lastRun || nextRun || lastCheck ? (_jsxs("div", { className: "hidden", children: [nextRun ? (_jsxs("span", { children: [t("jobs.nextRun", { defaultValue: "Next run" }), ":", " ", nextRun] })) : null, _jsxs("span", { children: [t("jobs.lastRun", { defaultValue: "Last run" }), ":", " ", lastRun ??
                                                                  t("jobs.neverRan", { defaultValue: "Never" })] }), !lastRun && lastCheck ? (_jsxs("span", { children: [t("jobs.lastChecked", {
                                                                  defaultValue: "Last checked",
@@ -3159,7 +3218,7 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
                      }) }) }))] }));
      const mutationError = personalJobsMutation.error ||
          personalAutomationsMutation.error ||
-@@ -311,23 +359,27 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -311,23 +390,27 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
                              defaultValue: "Scheduled, event-triggered, and webhook-triggered automations that run for you.",
                          }),
                          entries: personalEntries,
@@ -3194,7 +3253,7 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
                              organization: true,
                          }) }), mutationError ? (_jsx("p", { className: "text-sm text-destructive", children: mutationError.message ||
                              t("jobs.updateError", {
-@@ -347,7 +399,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -347,7 +430,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
                      if (!open && !runAutomationMutation.isPending)
                          setRunTarget(null);
                  }, children: _jsxs(DialogContent, { children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: t("jobs.runNowTitle", { defaultValue: "Run automation now?" }) }), _jsx(DialogDescription, { children: t("jobs.runNowDescription", {
@@ -3203,7 +3262,7 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81bad
                                      }) })] }), runAutomationMutation.error ? (_jsx("p", { className: "text-sm text-destructive", children: runAutomationMutation.error.message })) : null, _jsxs(DialogFooter, { children: [_jsx(Button, { type: "button", variant: "outline", className: "cursor-pointer", disabled: runAutomationMutation.isPending, onClick: () => setRunTarget(null), children: t("jobs.cancel", { defaultValue: "Cancel" }) }), _jsxs(Button, { type: "button", className: "cursor-pointer", disabled: runAutomationMutation.isPending, onClick: () => {
                                          if (!runTarget)
                                              return;
-@@ -359,5 +411,5 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -359,5 +442,5 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
                      ? detailsTarget.resource.condition
                      : null, instructions: detailsTarget.kind === "automation"
                      ? detailsTarget.resource.body
@@ -3282,10 +3341,33 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..e36940d69ff3a0cc28ba95c6168e842d
 +                                    }) })) : (_jsx("ul", { className: "mt-2 divide-y divide-border/60 border-y border-border/60", children: runs.map((run) => (_jsxs("li", { className: "flex items-center gap-2 py-1.5 text-xs", children: [_jsx(RunStatusDot, { status: run.status }), _jsx("span", { className: "shrink-0 text-muted-foreground", children: formatTimestamp(run.startedAt) }), _jsx("span", { className: "shrink-0 font-medium", children: run.status }), run.error ? (_jsx("span", { className: "min-w-0 flex-1 truncate text-muted-foreground", title: run.error, children: run.error })) : (_jsx("span", { className: "min-w-0 flex-1" })), run.finishedAt ? (_jsxs("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: [Math.round((run.finishedAt - run.startedAt) / 1000), "s"] })) : null] }, run.id))) }))] })] })] }) }));
  }
 diff --git a/dist/client/agent-page/use-jobs.d.ts b/dist/client/agent-page/use-jobs.d.ts
-index 604724adefca2998c14f2a33a362b198aa3041bb..8d40697aad1dbf1f7db188a0ee163dd9f83d3809 100644
+index 604724adefca2998c14f2a33a362b198aa3041bb..aca963681158ca424f318d5444f4365aaceccd6a 100644
 --- a/dist/client/agent-page/use-jobs.d.ts
 +++ b/dist/client/agent-page/use-jobs.d.ts
-@@ -84,6 +84,8 @@ export interface AutomationRun {
+@@ -1,4 +1,6 @@
++import type { SchedulerWait } from "../../jobs/next-run.js";
+ import type { ScheduledTriggerState, ScheduledTriggerStatus } from "./scheduled-trigger-state.js";
++export type { SchedulerWait };
+ export type JobsScope = "user" | "org";
+ export interface RecurringJob {
+     id: string;
+@@ -15,6 +17,7 @@ export interface RecurringJob {
+     lastStatus: string | null;
+     lastError: string | null;
+     nextRun: string | null;
++    schedulerWait: SchedulerWait | null;
+     createdBy: string | null;
+     mcpTools: string[];
+     canUpdate: boolean;
+@@ -38,6 +41,7 @@ export interface Automation {
+     lastStatus: string | null;
+     lastError: string | null;
+     nextRun: string | null;
++    schedulerWait: SchedulerWait | null;
+     createdBy: string | null;
+     model: string | null;
+     mcpTools: string[];
+@@ -84,6 +88,8 @@ export interface AutomationRun {
      error: string | null;
  }
  export type { ScheduledTriggerState, ScheduledTriggerStatus };
@@ -5595,22 +5677,45 @@ index 7027e9b195cf2b24fa4aa526cce40e8b4d75d751..efd06506f7e39f9afdc4b3227d9d26b8
      }, reservation.access).catch((err) => {
          console.warn("[integrations] Could not settle usage budget:", err instanceof Error ? err.message : err);
      })));
+diff --git a/dist/jobs/actions/list-recurring-jobs.d.ts b/dist/jobs/actions/list-recurring-jobs.d.ts
+index 894c08a6583e5efca02509f382392b67f95d6c9a..5e3326679c61a9f6bd33af269630c8deaa9e8402 100644
+--- a/dist/jobs/actions/list-recurring-jobs.d.ts
++++ b/dist/jobs/actions/list-recurring-jobs.d.ts
+@@ -1,3 +1,4 @@
++import type { SchedulerWait } from "../next-run.js";
+ export interface RecurringJobActionItem {
+     id: string;
+     name: string;
+@@ -13,6 +14,7 @@ export interface RecurringJobActionItem {
+     lastStatus: string | null;
+     lastError: string | null;
+     nextRun: string | null;
++    schedulerWait: SchedulerWait | null;
+     createdBy: string | null;
+     executionHostId: string | null;
+     executionEngine: string | null;
 diff --git a/dist/jobs/actions/list-recurring-jobs.js b/dist/jobs/actions/list-recurring-jobs.js
-index e806ca826db827ed70671a9409b718df85644d58..7008f7fd1ce14001616f1ae45392a1614b973c67 100644
+index e806ca826db827ed70671a9409b718df85644d58..34bd90e383707f151b235e6725fd24a6740d14dc 100644
 --- a/dist/jobs/actions/list-recurring-jobs.js
 +++ b/dist/jobs/actions/list-recurring-jobs.js
-@@ -4,6 +4,7 @@ import { organizationResourceOwner, resourceGetByPath, resourceList, } from "../
- import { describeCron, effectiveTimezone, isValidCron, nextOccurrence, } from "../cron.js";
+@@ -1,32 +1,52 @@
+ import { z } from "zod";
+ import { defineAction } from "../../action.js";
+ import { organizationResourceOwner, resourceGetByPath, resourceList, } from "../../resources/store.js";
+-import { describeCron, effectiveTimezone, isValidCron, nextOccurrence, } from "../cron.js";
++import { describeCron, effectiveTimezone, isValidCron, } from "../cron.js";
  import { classifyJobResource } from "../frontmatter.js";
++import { listedNextRun, readScheduleView } from "../next-run.js";
  import { parseJobFrontmatter } from "../scheduler.js";
-+import { getAutomationSchedulerHealth } from "../scheduler-health.js";
++import { automationRunLeaseKey, getAutomationSchedulerHealth, } from "../scheduler-health.js";
  import { authorizeJobMutation, jobBelongsToApp } from "../tools.js";
  const scopeSchema = z.enum(["personal", "organization"]);
  function jobName(path) {
-@@ -28,6 +29,40 @@ function nextRun(meta) {
-         ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
-         : null;
+     return path.replace(/^jobs\//, "").replace(/\.md$/, "");
  }
++function isScheduled(meta) {
++    return Boolean(meta.schedule && isValidCron(meta.schedule));
++}
 +/**
 + * Vivary #115: the front matter `lastCheck` is written only when a check skips
 + * the job, so a healthy job read as never checked. The scheduler records its
@@ -5630,11 +5735,16 @@ index e806ca826db827ed70671a9409b718df85644d58..7008f7fd1ce14001616f1ae45392a161
 +        ? stored
 +        : new Date(schedulerCheckedAt).toISOString();
 +}
-+/**
+ /**
+- * A stored `nextRun` in the past means the scheduler kept declining to run the
+- * job, not that it is due two days ago. Report the real next occurrence and
+- * let `lastError` carry the reason it keeps being passed over.
 + * Vivary #115: the scheduler's last check, or null. A heartbeat whose check
 + * recorded an error is not a check. The value is informative only, so a failed
 + * read is logged and each entry keeps its stored value.
-+ */
+  */
+-function nextRun(meta) {
+-    if (!meta.enabled)
 +async function readSchedulerCheckedAt(appId) {
 +    try {
 +        const health = await getAutomationSchedulerHealth({ appId });
@@ -5642,21 +5752,30 @@ index e806ca826db827ed70671a9409b718df85644d58..7008f7fd1ce14001616f1ae45392a161
 +    }
 +    catch (error) {
 +        console.warn("[automations] Could not read the scheduler's last check:", error instanceof Error ? error.message : error);
-+        return null;
-+    }
-+}
+         return null;
+-    const scheduled = Boolean(meta.schedule && isValidCron(meta.schedule));
+-    if (meta.nextRun) {
+-        const stored = new Date(meta.nextRun).getTime();
+-        if (!Number.isFinite(stored) || stored > Date.now() || !scheduled) {
+-            return meta.nextRun;
+-        }
+     }
+-    return scheduled
+-        ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
+-        : null;
+ }
  export default defineAction({
      description: "List legacy recurring cron jobs visible in the selected personal or organization scope. This compatibility read surface is used by the Agent Automations page.",
-     agentTool: false,
-@@ -47,6 +82,7 @@ export default defineAction({
+@@ -47,6 +67,8 @@ export default defineAction({
              ? organizationResourceOwner(ctx.orgId)
              : userEmail;
          const resources = await resourceList(owner, "jobs/");
 +        const schedulerCheckedAt = await readSchedulerCheckedAt(ctx?.appId);
++        const view = await readScheduleView(ctx?.appId);
          const jobs = [];
          for (const resource of resources) {
              if (!resource.path.endsWith(".md") || resource.path.endsWith(".keep")) {
-@@ -74,7 +110,7 @@ export default defineAction({
+@@ -74,10 +96,10 @@ export default defineAction({
                  instructions: body,
                  enabled: meta.enabled,
                  lastRun: meta.lastRun ?? null,
@@ -5664,7 +5783,11 @@ index e806ca826db827ed70671a9409b718df85644d58..7008f7fd1ce14001616f1ae45392a161
 +                lastCheck: lastCheck(meta, schedulerCheckedAt, full.createdAt),
                  lastStatus: meta.lastStatus ?? null,
                  lastError: meta.lastError ?? null,
-                 nextRun: nextRun(meta),
+-                nextRun: nextRun(meta),
++                ...listedNextRun(meta, isScheduled(meta), automationRunLeaseKey(owner, full.path), view),
+                 createdBy: meta.createdBy ?? null,
+                 executionHostId: meta.executionHostId ?? null,
+                 executionEngine: meta.executionEngine ?? null,
 diff --git a/dist/jobs/background-automation-runner.d.ts b/dist/jobs/background-automation-runner.d.ts
 index 4dfe9233dfd9db3068aee0c262344a7b1d2b8881..88834a3f733b3e0266a3f4db95c46ab0be6146d6 100644
 --- a/dist/jobs/background-automation-runner.d.ts
@@ -5969,6 +6092,156 @@ index ed81476fcde88609feb1e861346cf3baa10bce35..bf184155efb3bf1243c704685d6d5baa
  export { getAutomationSchedulerHealth, recordAutomationSchedulerHealth, } from "./scheduler-health.js";
  export { RECURRING_JOBS_SWEEP_PATH, RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, } from "./scheduler-dispatch.js";
  export { createJobTools } from "./tools.js";
+diff --git a/dist/jobs/next-run.d.ts b/dist/jobs/next-run.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..1edd55f917d2783013a4541b123d8a2506aa32b6
+--- /dev/null
++++ b/dist/jobs/next-run.d.ts
+@@ -0,0 +1,34 @@
++import type { JobFrontmatter } from "./frontmatter.js";
++import type { HeldAutomationLease } from "./scheduler-health.js";
++/**
++ * Vivary #140. Why the scheduler cannot act on an entry yet. A `run` holds
++ * until the current run ends. The others hold until `resumesAfter` and then up
++ * to two scheduler ticks more.
++ */
++export type SchedulerWait = {
++    reason: "run";
++    resumesAfter: null;
++} | {
++    reason: "stalled-run" | "scheduler";
++    resumesAfter: string;
++};
++export interface ScheduleView {
++    now: number;
++    hardTimeoutMs: number;
++    scheduler: HeldAutomationLease | null;
++    runs: Map<string, HeldAutomationLease>;
++}
++/**
++ * Vivary #140. The clock and the held leases one list request reads once. A
++ * failed read is logged, and the list then reports next runs as before #140.
++ */
++export declare function readScheduleView(appId?: string): Promise<ScheduleView>;
++/**
++ * Vivary #140. The NEXT RUN both list actions report. While a lease or a
++ * running mark keeps the scheduler from acting on an entry, a time it cannot
++ * meet is reported as null with the wait that blocks it.
++ */
++export declare function listedNextRun(meta: JobFrontmatter, scheduled: boolean, runKey: string, view: ScheduleView): {
++    nextRun: string | null;
++    schedulerWait: SchedulerWait | null;
++};
+diff --git a/dist/jobs/next-run.js b/dist/jobs/next-run.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf353ca13462cc869d17d3494ab3b2d8626af119
+--- /dev/null
++++ b/dist/jobs/next-run.js
+@@ -0,0 +1,104 @@
++import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
++import { nextOccurrence } from "./cron.js";
++import { AUTOMATION_LEASE_STALE_MS, AUTOMATION_SCHEDULER_TICK_MS, readHeldAutomationLeases, } from "./scheduler-health.js";
++/**
++ * Vivary #140. The tick that ends a wait lands at the first tick at or after
++ * it, and a fresh launch first ticks 70 seconds in, so a wait clears within
++ * two ticks of its end.
++ */
++const WAIT_SLACK_MS = 2 * AUTOMATION_SCHEDULER_TICK_MS;
++/**
++ * Vivary #140. The clock and the held leases one list request reads once. A
++ * failed read is logged, and the list then reports next runs as before #140.
++ */
++export async function readScheduleView(appId) {
++    const now = Date.now();
++    const view = {
++        now,
++        hardTimeoutMs: resolveBackgroundRunHardTimeoutMs(),
++        scheduler: null,
++        runs: new Map(),
++    };
++    try {
++        return { ...view, ...(await readHeldAutomationLeases({ appId, now })) };
++    }
++    catch (error) {
++        console.warn("[automations] Could not read the scheduler leases:", error instanceof Error ? error.message : error);
++        return view;
++    }
++}
++/**
++ * Vivary #140. The NEXT RUN both list actions report. While a lease or a
++ * running mark keeps the scheduler from acting on an entry, a time it cannot
++ * meet is reported as null with the wait that blocks it.
++ */
++export function listedNextRun(meta, scheduled, runKey, view) {
++    if (!meta.enabled)
++        return { nextRun: null, schedulerWait: null };
++    const due = dueTime(meta, scheduled, view.now);
++    if (!scheduled || due === null)
++        return { nextRun: due, schedulerWait: null };
++    const wait = later(runWait(meta, view.runs.get(runKey), view), schedulerLeaseWait(view));
++    // By `clearsBy` the scheduler has acted on the wait. No occurrence lies
++    // between now and a later `due`, so `due` is the run it starts.
++    if (!wait || Date.parse(due) > wait.clearsBy)
++        return { nextRun: due, schedulerWait: null };
++    return {
++        nextRun: null,
++        schedulerWait: {
++            reason: wait.reason,
++            resumesAfter: wait.resumesAfter === null ? null : new Date(wait.resumesAfter).toISOString(),
++        },
++    };
++}
++// A stored `nextRun` in the past means the scheduler kept declining to run
++// the entry, not that it is overdue. Report the real next occurrence and let
++// `lastError` carry the reason it keeps being passed over.
++function dueTime(meta, scheduled, now) {
++    if (meta.nextRun) {
++        const stored = new Date(meta.nextRun).getTime();
++        if (!Number.isFinite(stored) || stored > now || !scheduled) {
++            return meta.nextRun;
++        }
++    }
++    return scheduled
++        ? nextOccurrence(meta.schedule, new Date(now), meta.timezone).toISOString()
++        : null;
++}
++function stale(lease, now) {
++    return now - lease.writtenAt > AUTOMATION_LEASE_STALE_MS;
++}
++/**
++ * A run lease or a running mark, as the scan reads them. A held lease blocks
++ * the entry whether or not its holder still renews it, because a lease killed
++ * seconds ago looks live. Renewal picks only the reason.
++ */
++function runWait(meta, lease, view) {
++    const marked = meta.lastStatus === "running";
++    if (!marked && !lease)
++        return null;
++    // The relay reports when a paired host's run ends, so it has no bound.
++    if (!lease && meta.executionHostId)
++        return { reason: "run", resumesAfter: null, clearsBy: Infinity };
++    // A mark whose start does not parse is outside every time window, so the
++    // next scan resets it, as `isBackgroundAutomationRunActive` reads it.
++    const startedAt = marked ? Date.parse(meta.lastRun) : Number.NaN;
++    const windowEnd = Number.isFinite(startedAt) ? startedAt + view.hardTimeoutMs : -Infinity;
++    const from = Math.max(lease?.expiresAt ?? -Infinity, windowEnd);
++    if (lease && !stale(lease, view.now))
++        return { reason: "run", resumesAfter: null, clearsBy: from + WAIT_SLACK_MS };
++    const at = Math.max(from, view.now);
++    return { reason: "stalled-run", resumesAfter: at, clearsBy: at + WAIT_SLACK_MS };
++}
++/** A live scan holds the scheduler lease too, so only a stale one is a wait. */
++function schedulerLeaseWait(view) {
++    const lease = view.scheduler;
++    if (!lease || !stale(lease, view.now))
++        return null;
++    return { reason: "scheduler", resumesAfter: lease.expiresAt, clearsBy: lease.expiresAt + WAIT_SLACK_MS };
++}
++function later(a, b) {
++    if (!a || !b)
++        return a ?? b;
++    return b.clearsBy > a.clearsBy ? b : a;
++}
 diff --git a/dist/jobs/remote-execution.js b/dist/jobs/remote-execution.js
 index 09a7c7dea53e0ee91159c25626d8acbe905713b6..d5b8d08194157ff58e4f8aec2608c64203462a1a 100644
 --- a/dist/jobs/remote-execution.js
@@ -6303,10 +6576,24 @@ index 7af3befd00e560cf644d4654820686c6bfd3fc37..0c62950fccaa60ffe50e9ddcd9cb0449
          }
          catch (error) {
 diff --git a/dist/jobs/scheduler-health.d.ts b/dist/jobs/scheduler-health.d.ts
-index 27ee398ef729e3c8e81379a8050751bf50248bbe..b218d16d8b2012fa487e3f62a86e711c0dc1f2cb 100644
+index 27ee398ef729e3c8e81379a8050751bf50248bbe..44a6da26db1694dcfd5e89c3e807d356369c115d 100644
 --- a/dist/jobs/scheduler-health.d.ts
 +++ b/dist/jobs/scheduler-health.d.ts
-@@ -32,6 +32,24 @@ export declare function releaseAutomationSchedulerLease(input: {
+@@ -1,6 +1,13 @@
+ import { type MigrationEntry } from "../db/migrations.js";
+ export declare const AUTOMATION_SCHEDULER_LEASE_MS: number;
+ export declare const AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS = 60000;
++/** The in-process scheduler tick. `server/agent-chat-plugin.js` sets its timer with it. */
++export declare const AUTOMATION_SCHEDULER_TICK_MS = 60000;
++/**
++ * Vivary #140. A holder writes its lease row at every renewal, so a row not
++ * written for one and a half renewals belongs to a holder that stopped.
++ */
++export declare const AUTOMATION_LEASE_STALE_MS: number;
+ /** Authoritative release-time schema for recurring scheduler health. */
+ export declare const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS: MigrationEntry[];
+ export declare function runAutomationSchedulerHealthMigrations(nitroApp: unknown): Promise<void>;
+@@ -32,6 +39,44 @@ export declare function releaseAutomationSchedulerLease(input: {
      appId?: string;
      owner: string;
  }): Promise<void>;
@@ -6328,14 +6615,48 @@ index 27ee398ef729e3c8e81379a8050751bf50248bbe..b218d16d8b2012fa487e3f62a86e711c
 +    key: string;
 +    owner: string;
 +}): Promise<void>;
++/** Vivary #140. The run lease key of an automation's resource. */
++export declare function automationRunLeaseKey(owner: string, path: string): string;
++/** A held lease. `writtenAt` is its holder's last acquire or renewal. */
++export interface HeldAutomationLease {
++    expiresAt: number;
++    writtenAt: number;
++}
++/**
++ * Vivary #140. The app's scheduler lease and every run lease, keyed by run
++ * lease key, in one read-only query. A lease whose expiry has passed is free,
++ * as `acquireLeaseRow` treats it, so it is left out. `writtenAt` is the
++ * holder's last acquire or renewal.
++ */
++export declare function readHeldAutomationLeases(input: {
++    appId?: string;
++    now: number;
++}): Promise<{
++    scheduler: HeldAutomationLease | null;
++    runs: Map<string, HeldAutomationLease>;
++}>;
  /** Record the last scheduler tick without making health bookkeeping fatal. */
  export declare function recordAutomationSchedulerHealth(input: {
      appId?: string;
 diff --git a/dist/jobs/scheduler-health.js b/dist/jobs/scheduler-health.js
-index bfe5eb32673b056ace050a6af925c0d7cc1874e3..10514834a77479aad3b2989607ff568e8a1f5d37 100644
+index bfe5eb32673b056ace050a6af925c0d7cc1874e3..eb331d05dcc271bd5a0d7684236eefe622539ea2 100644
 --- a/dist/jobs/scheduler-health.js
 +++ b/dist/jobs/scheduler-health.js
-@@ -133,9 +133,13 @@ function leaseRowId(appId) {
+@@ -7,6 +7,13 @@ const DEFAULT_APP_ID = "default";
+ const MAX_ERROR_LENGTH = 500;
+ export const AUTOMATION_SCHEDULER_LEASE_MS = 10 * 60_000;
+ export const AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS = 60_000;
++/** The in-process scheduler tick. `server/agent-chat-plugin.js` sets its timer with it. */
++export const AUTOMATION_SCHEDULER_TICK_MS = 60_000;
++/**
++ * Vivary #140. A holder writes its lease row at every renewal, so a row not
++ * written for one and a half renewals belongs to a holder that stopped.
++ */
++export const AUTOMATION_LEASE_STALE_MS = 1.5 * AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS;
+ /** Authoritative release-time schema for recurring scheduler health. */
+ export const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS = [
+     {
+@@ -133,9 +140,13 @@ function leaseRowId(appId) {
  }
  /** Claim one recurring scheduler across all deployments of an app. */
  export async function acquireAutomationSchedulerLease(input = {}) {
@@ -6350,7 +6671,7 @@ index bfe5eb32673b056ace050a6af925c0d7cc1874e3..10514834a77479aad3b2989607ff568e
      const now = input.now ?? Date.now();
      const leaseMs = Math.max(input.leaseMs ?? AUTOMATION_SCHEDULER_LEASE_MS, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS * 2);
      const owner = randomUUID();
-@@ -165,6 +169,9 @@ export async function acquireAutomationSchedulerLease(input = {}) {
+@@ -165,6 +176,9 @@ export async function acquireAutomationSchedulerLease(input = {}) {
  }
  /** Renew a lease while a slow sweep is still executing. */
  export async function renewAutomationSchedulerLease(input) {
@@ -6360,7 +6681,7 @@ index bfe5eb32673b056ace050a6af925c0d7cc1874e3..10514834a77479aad3b2989607ff568e
      await ensureHealthTable();
      const now = input.now ?? Date.now();
      const expiresAt = now + Math.max(input.leaseMs ?? AUTOMATION_SCHEDULER_LEASE_MS, 0);
-@@ -175,7 +182,7 @@ export async function renewAutomationSchedulerLease(input) {
+@@ -175,7 +189,7 @@ export async function renewAutomationSchedulerLease(input) {
          args: [
              expiresAt,
              now,
@@ -6369,12 +6690,16 @@ index bfe5eb32673b056ace050a6af925c0d7cc1874e3..10514834a77479aad3b2989607ff568e
              input.owner,
          ],
      });
-@@ -191,6 +198,29 @@ export async function releaseAutomationSchedulerLease(input) {
+@@ -191,6 +205,60 @@ export async function releaseAutomationSchedulerLease(input) {
          args: [Date.now(), leaseRowId(normalizeAppId(input.appId)), input.owner],
      });
  }
 +function runLeaseRowId(key) {
 +    return `run:${key}`;
++}
++/** Vivary #140. The run lease key of an automation's resource. */
++export function automationRunLeaseKey(owner, path) {
++    return `${owner}:${path}`;
 +}
 +/**
 + * Vivary #139. Claim one automation's run across all processes and apps. `key`
@@ -6395,6 +6720,33 @@ index bfe5eb32673b056ace050a6af925c0d7cc1874e3..10514834a77479aad3b2989607ff568e
 +        sql: `DELETE FROM ${TABLE} WHERE id = ? AND lease_owner = ?`,
 +        args: [runLeaseRowId(input.key), input.owner],
 +    });
++}
++/**
++ * Vivary #140. The app's scheduler lease and every run lease, keyed by run
++ * lease key, in one read-only query. A lease whose expiry has passed is free,
++ * as `acquireLeaseRow` treats it, so it is left out. `writtenAt` is the
++ * holder's last acquire or renewal.
++ */
++export async function readHeldAutomationLeases(input) {
++    await ensureHealthTable();
++    const schedulerId = leaseRowId(normalizeAppId(input.appId));
++    const result = await getDbExec().execute({
++        sql: `SELECT id, lease_expires_at, updated_at FROM ${TABLE}
++          WHERE lease_owner IS NOT NULL AND lease_expires_at > ? AND (id = ? OR id LIKE 'run:%')`,
++        args: [input.now, schedulerId],
++    });
++    const held = { scheduler: null, runs: new Map() };
++    for (const row of result.rows ?? []) {
++        const lease = {
++            expiresAt: Number(row.lease_expires_at),
++            writtenAt: Number(row.updated_at),
++        };
++        if (row.id === schedulerId)
++            held.scheduler = lease;
++        else
++            held.runs.set(String(row.id).slice("run:".length), lease);
++    }
++    return held;
 +}
  function fromRow(row) {
      return {
@@ -6439,7 +6791,7 @@ index 74b780aee4258ac540ce9feb98106febe05e744a..e595ae0956f6948ef86bf5b3df961beb
  export declare function runQueuedAutomation(historyId: string, deps: SchedulerDeps): Promise<{
      skipped: boolean;
 diff --git a/dist/jobs/scheduler.js b/dist/jobs/scheduler.js
-index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..458b14386131fe73c6781e338d791be643d7f5ce 100644
+index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..c91f69966985fba6603b5a6f6bc5d527d3164f8e 100644
 --- a/dist/jobs/scheduler.js
 +++ b/dist/jobs/scheduler.js
 @@ -1,10 +1,11 @@
@@ -6453,7 +6805,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..458b14386131fe73c6781e338d791be6
 -import { claimAutomationRun, finishAutomationRun, getAutomationRun, listAutomationRuns, } from "./run-history.js";
 -import { acquireAutomationSchedulerLease, recordAutomationSchedulerHealth, releaseAutomationSchedulerLease, renewAutomationSchedulerLease, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS, } from "./scheduler-health.js";
 +import { claimAutomationRun, finishAutomationRun, getAutomationRun, INTERRUPTED_RUN_ERROR_CODE, INTERRUPTED_RUN_MESSAGE, listAutomationRuns, } from "./run-history.js";
-+import { acquireAutomationRunLease, acquireAutomationSchedulerLease, recordAutomationSchedulerHealth, releaseAutomationRunLease, releaseAutomationSchedulerLease, renewAutomationRunLease, renewAutomationSchedulerLease, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS, } from "./scheduler-health.js";
++import { acquireAutomationRunLease, acquireAutomationSchedulerLease, automationRunLeaseKey, recordAutomationSchedulerHealth, releaseAutomationRunLease, releaseAutomationSchedulerLease, renewAutomationRunLease, renewAutomationSchedulerLease, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS, } from "./scheduler-health.js";
  // ─── Frontmatter parsing ────────────────────────────────────────────────────
  export { classifyJobFrontmatter, classifyJobResource, normalizeJobMcpTools, parseJobResource, } from "./frontmatter.js";
  export function parseJobFrontmatter(content) {
@@ -6682,7 +7034,7 @@ index 7598967a6a5837b6dcafe8719e5ed53f88fbc428..458b14386131fe73c6781e338d791be6
 + * `release`. Null while another run, in any process, holds it.
 + */
 +async function holdRunLease(resource) {
-+    const key = `${resource.owner}:${resource.path}`;
++    const key = automationRunLeaseKey(resource.owner, resource.path);
 +    const leaseOwner = await acquireAutomationRunLease({ key });
 +    if (!leaseOwner)
 +        return null;
@@ -7358,7 +7710,7 @@ index 0000000000000000000000000000000000000000..809916ffaea0d49365eb9e331ea2f313
 +    return restricted;
 +}
 diff --git a/dist/localization/default-messages.d.ts b/dist/localization/default-messages.d.ts
-index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..413acab21262354f610d7c0f3ec064872d70605a 100644
+index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..5693ca0ac42cf11c98d2c1cf930fc5018e313d1e 100644
 --- a/dist/localization/default-messages.d.ts
 +++ b/dist/localization/default-messages.d.ts
 @@ -665,6 +665,7 @@ declare const messages: {
@@ -7389,8 +7741,19 @@ index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..413acab21262354f610d7c0f3ec06487
          deleteAutomationTitle: string;
          deleteAutomationDescription: string;
          runNow: string;
+@@ -757,6 +764,10 @@ declare const messages: {
+         nextRunNeverScheduler: string;
+         nextRunSchedulerUnknown: string;
+         nextRunSchedulerUnknownNoDate: string;
++        nextRunAfterRun: string;
++        nextRunAfterStalledRun: string;
++        nextRunAfterSchedulerLease: string;
++        nextRunWaitCheck: string;
+         scheduleUnknownTitle: string;
+         scheduleUnknownDetail: string;
+         scheduleUnavailableTitle: string;
 diff --git a/dist/localization/default-messages.js b/dist/localization/default-messages.js
-index a534663feca2ca8960b6782390c5a97f944c35b5..707b1a0e8b7e37597927b76f7bd7275559488921 100644
+index a534663feca2ca8960b6782390c5a97f944c35b5..6da16e6bd84f84e319b04264caa169417fd23ec1 100644
 --- a/dist/localization/default-messages.js
 +++ b/dist/localization/default-messages.js
 @@ -671,6 +671,7 @@ const messages = {
@@ -7419,7 +7782,7 @@ index a534663feca2ca8960b6782390c5a97f944c35b5..707b1a0e8b7e37597927b76f7bd72755
          automationEventTrigger: "On {{event}}",
          webhook: "Webhook",
          automationWebhookDetails: "Runs when a webhook is received.",
-@@ -748,17 +751,21 @@ const messages = {
+@@ -748,21 +751,29 @@ const messages = {
          webhookTrigger: "Webhook-triggered",
          webhookUrl: "Webhook URL",
          webhookUrlHint: "Paste this URL into a service that sends HTTP POST webhooks.",
@@ -7443,6 +7806,14 @@ index a534663feca2ca8960b6782390c5a97f944c35b5..707b1a0e8b7e37597927b76f7bd72755
          openAutomations: "Open Automations",
          nextRunNeverScheduler: "Never — no scheduler in this deploy",
          nextRunSchedulerUnknown: "{{date}} — unconfirmed, the scheduler check failed",
+         nextRunSchedulerUnknownNoDate: "Unknown — the scheduler check failed",
++        nextRunAfterRun: "After the current run finishes",
++        nextRunAfterStalledRun: "Scheduling resumes after {{date}}, when an unfinished run times out",
++        nextRunAfterSchedulerLease: "Scheduling resumes after {{date}}, when an interrupted schedule check times out",
++        nextRunWaitCheck: "Waiting for the next schedule check",
+         scheduleUnknownTitle: "Couldn't check whether schedules run here",
+         scheduleUnknownDetail: "The scheduler status check failed, so the next run times below are unconfirmed. Reload to check again.",
+         scheduleUnavailableTitle: "Schedules won't run in this deploy",
 diff --git a/dist/notifications/actions.js b/dist/notifications/actions.js
 index f6429f95fb3eddc4071e39f1e4394d5c2ea8d3bb..e8807f035d1a072e6a5d6e574366f7a7471031c3 100644
 --- a/dist/notifications/actions.js
@@ -10185,7 +10556,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..99142fc8d5899f6a2bd057414a28d561
              },
          };
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..99f71da27a2048d6ad6ddcc687664be2daa68b9d 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..1f5658f7ed522b5993a82766f8aca981fe12ef53 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
 @@ -1,3 +1,4 @@
@@ -10504,13 +10875,14 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..99f71da27a2048d6ad6ddcc687664be2
                      if (typeof waitUntil === "function") {
                          void waitUntil(runPromise);
                      }
-@@ -5321,34 +5320,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5321,34 +5320,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              // Poll every 60 seconds for due recurring jobs and execute them.
              // Long-lived runtimes use setInterval; serverless runtimes rely on a
              // platform-owned sweep because an invocation cannot own a durable loop.
 +            let ownsInProcessScheduler = false;
              try {
                  const { processRecurringJobs } = await import("../jobs/scheduler.js");
++                const { AUTOMATION_SCHEDULER_TICK_MS } = await import("../jobs/scheduler-health.js");
                  const schedulerDeps = {
                      getActions: getBackgroundActionEntries,
                      getSystemPrompt: async (owner) => {
@@ -10542,7 +10914,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..99f71da27a2048d6ad6ddcc687664be2
                      apiKey: options?.apiKey,
                      model: resolveConfiguredAgentModel(options),
                      appId: options?.appId,
-@@ -5439,6 +5422,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5439,13 +5423,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      }
                  }
                  else {
@@ -10558,7 +10930,15 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..99f71da27a2048d6ad6ddcc687664be2
                      // Start after a 10-second delay to let the server fully initialize
                      setTimeout(() => {
                          setInterval(() => {
-@@ -5762,24 +5754,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+                             processRecurringJobs(schedulerDeps).catch((err) => {
+                                 console.error("[recurring-jobs] Scheduler error:", err?.message);
+                             });
+-                        }, 60_000);
++                        }, AUTOMATION_SCHEDULER_TICK_MS);
+                         if (process.env.DEBUG)
+                             console.log("[recurring-jobs] Scheduler started (60s interval)");
+                     }, 10_000);
+@@ -5762,24 +5755,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              await initTriggerDispatcher({
                  getActions: getBackgroundActionEntries,
                  getSystemPrompt: async (owner) => {
@@ -10603,7 +10983,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..99f71da27a2048d6ad6ddcc687664be2
          })().catch((err) => {
              // If the init fails, the routes never get registered and requests
              // to /_agent-native/agent-chat silently 404. Register a fallback
-@@ -5803,6 +5805,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5803,6 +5806,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                  "/mcp",
                  "/.well-known/agent-card.json",
                  "/_agent-native/a2a",
@@ -10942,22 +11322,53 @@ index 0000000000000000000000000000000000000000..7d2b4779b23028b8e1abbc39f8d12e78
 +    }
 +    return globalThis[BUILDER_OFFERS_KEY] !== false;
 +}
+diff --git a/dist/triggers/actions/list-automations.d.ts b/dist/triggers/actions/list-automations.d.ts
+index b4b692a7be1f12ae8ae6ae8f8943f08b8c97334e..ecee33788a81ca81c081d5985abf5cf9e803cf5d 100644
+--- a/dist/triggers/actions/list-automations.d.ts
++++ b/dist/triggers/actions/list-automations.d.ts
+@@ -1,3 +1,4 @@
++import type { SchedulerWait } from "../../jobs/next-run.js";
+ export interface AutomationActionItem {
+     id: string;
+     name: string;
+@@ -17,6 +18,7 @@ export interface AutomationActionItem {
+     lastStatus: string | null;
+     lastError: string | null;
+     nextRun: string | null;
++    schedulerWait: SchedulerWait | null;
+     createdBy: string | null;
+     model: string | null;
+     executionHostId: string | null;
 diff --git a/dist/triggers/actions/list-automations.js b/dist/triggers/actions/list-automations.js
-index 3d0925c6967528af2b4050802324e8899add82e7..a5f228371ce8d3f9d0744011a4c229cd2011c26b 100644
+index 3d0925c6967528af2b4050802324e8899add82e7..8de09b4a211ecf3e9185eee5489f2e13770e39ff 100644
 --- a/dist/triggers/actions/list-automations.js
 +++ b/dist/triggers/actions/list-automations.js
-@@ -2,6 +2,7 @@ import { z } from "zod";
+@@ -1,26 +1,52 @@
+ import { z } from "zod";
  import { defineAction } from "../../action.js";
  import { listAutomationDefinitions, } from "../../automations/service.js";
- import { describeCron, effectiveTimezone, isValidCron, nextOccurrence, } from "../../jobs/cron.js";
-+import { getAutomationSchedulerHealth } from "../../jobs/scheduler-health.js";
+-import { describeCron, effectiveTimezone, isValidCron, nextOccurrence, } from "../../jobs/cron.js";
++import { describeCron, effectiveTimezone, isValidCron, } from "../../jobs/cron.js";
++import { listedNextRun, readScheduleView } from "../../jobs/next-run.js";
++import { automationRunLeaseKey, getAutomationSchedulerHealth, } from "../../jobs/scheduler-health.js";
  const scopeSchema = z.enum(["personal", "organization"]);
- function nextRun(meta) {
-     if (!meta.enabled)
-@@ -22,6 +23,44 @@ function nextRun(meta) {
-         ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
-         : null;
- }
+-function nextRun(meta) {
+-    if (!meta.enabled)
+-        return null;
+-    const scheduled = Boolean(meta.triggerType === "schedule" &&
++function isScheduled(meta) {
++    return Boolean(meta.triggerType === "schedule" &&
+         meta.schedule &&
+         isValidCron(meta.schedule));
+-    // A stored `nextRun` in the past means the dispatcher kept declining to run
+-    // this automation, not that it is overdue. Report the real next occurrence
+-    // and let `lastError` carry the reason it keeps being passed over.
+-    if (meta.nextRun) {
+-        const stored = new Date(meta.nextRun).getTime();
+-        if (!Number.isFinite(stored) || stored > Date.now() || !scheduled) {
+-            return meta.nextRun;
+-        }
++}
 +/**
 + * Vivary #115: the front matter `lastCheck` is written only when a check skips
 + * the automation, so a healthy scheduled automation read as never checked.
@@ -10994,20 +11405,23 @@ index 3d0925c6967528af2b4050802324e8899add82e7..a5f228371ce8d3f9d0744011a4c229cd
 +    catch (error) {
 +        console.warn("[automations] Could not read the scheduler's last check:", error instanceof Error ? error.message : error);
 +        return null;
-+    }
-+}
+     }
+-    return scheduled
+-        ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
+-        : null;
+ }
  export default defineAction({
      description: "List scheduled, event-triggered, and webhook-triggered automations in the selected personal or organization scope.",
-     agentTool: false,
-@@ -36,6 +75,7 @@ export default defineAction({
+@@ -36,6 +62,8 @@ export default defineAction({
          if (!userEmail)
              throw new Error("Not authenticated.");
          const definitions = await listAutomationDefinitions({ userEmail, orgId: ctx?.orgId, appId: ctx?.appId }, scope);
 +        const schedulerCheckedAt = await readSchedulerCheckedAt(ctx?.appId);
++        const view = await readScheduleView(ctx?.appId);
          return definitions.map(({ resource, name, meta, body, canUpdate, webhookPath }) => ({
              id: resource.id,
              name,
-@@ -55,7 +95,7 @@ export default defineAction({
+@@ -55,10 +83,10 @@ export default defineAction({
              body,
              enabled: meta.enabled,
              lastRun: meta.lastRun ?? null,
@@ -11015,7 +11429,11 @@ index 3d0925c6967528af2b4050802324e8899add82e7..a5f228371ce8d3f9d0744011a4c229cd
 +            lastCheck: lastCheck(meta, schedulerCheckedAt, resource.createdAt),
              lastStatus: meta.lastStatus ?? null,
              lastError: meta.lastError ?? null,
-             nextRun: nextRun(meta),
+-            nextRun: nextRun(meta),
++            ...listedNextRun(meta, isScheduled(meta), automationRunLeaseKey(resource.owner, resource.path), view),
+             createdBy: meta.createdBy ?? null,
+             model: meta.model ?? null,
+             executionHostId: meta.executionHostId ?? null,
 diff --git a/dist/triggers/actions.js b/dist/triggers/actions.js
 index 483c3ed92c47472903f7eb53640aeb16d424dfd4..ec1e16719912854c1aa9319a5c3908ddab2b60f1 100644
 --- a/dist/triggers/actions.js
