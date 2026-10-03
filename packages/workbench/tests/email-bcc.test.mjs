@@ -72,7 +72,7 @@ async function deliver(provider, operation, { status = 202, mode = "production" 
     EMAIL_FROM: "Fixture <sender@example.test>",
   };
   state.records = [];
-  // guard:allow-test-env - Isolate the existing development logging fallback.
+  // guard:allow-env-mutation - Test-only mode for the existing development fallback, restored in finally.
   process.env.NODE_ENV = mode;
   console.log = (...args) => { logs.push(args); };
   globalThis.fetch = async (url, options) => {
@@ -89,7 +89,9 @@ async function deliver(provider, operation, { status = 202, mode = "production" 
   } finally {
     globalThis.fetch = fetchBefore;
     console.log = logBefore;
+    // guard:allow-env-mutation - Restore the test process's original unset mode.
     if (modeBefore === undefined) delete process.env.NODE_ENV;
+    // guard:allow-env-mutation - Restore the test process's original mode.
     else process.env.NODE_ENV = modeBefore;
     state.secrets = {};
     state.records = [];
