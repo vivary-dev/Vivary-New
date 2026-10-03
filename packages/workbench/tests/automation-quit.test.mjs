@@ -44,7 +44,8 @@ const load = relative => import(pathToFileURL(path.join(coreRoot, "dist", relati
 const [scheduler, runHistory, { defineAutomation }, { getDbExec }, { resourceGetByPath, resourcePut },
   { parseJobResource, patchJobFrontmatterFields }, { initTriggerDispatcher }, webhookTask,
   { setInProcessIntegrationTaskRunner }, { insertPendingTask }, { retryStuckPendingTasks },
-  listAutomations, { acquireAutomationRunLease, releaseAutomationRunLease }] = await Promise.all([
+  listAutomations, { AUTOMATION_SCHEDULER_LEASE_MS, acquireAutomationRunLease, ensureHealthTable,
+    releaseAutomationRunLease }] = await Promise.all([
   load("jobs/scheduler.js"),
   load("jobs/run-history.js"),
   load("automations/service.js"),
@@ -681,6 +682,74 @@ test("a running mark the scan cannot check leaves the rest of the scan", async (
   assert.deepEqual((await runsOf("check-app", "checked-due")).map(run => run.status), ["success"],
     "another due automation started in the same tick");
   assert.equal((await leaseRow("check-app")).lastError, null, "the scan recorded no error");
+});
+
+// Issue #140. While a lease keeps the scheduler from acting on an automation, the list must not name a next run before
+// that lease expires.
+test("the list names no next run before a killed run's lease lets the scheduler act", async t => {
+  await defineScheduled("dead-run-app", "dead-run");
+  await makeDue("dead-run");
+  const { child, report, exited } = spawnChild("hold", "dead-run-app");
+  t.after(async () => {
+    child.kill("SIGKILL");
+    await exited;
+  });
+  const { running, runLease: held } = await report;
+  assert.equal(running, "dead-run");
+  assert.ok(held.leaseOwner, "the child holds the run's lease");
+  child.kill("SIGKILL");
+  const killedAt = Date.now();
+  await within(exited, 10_000, "the killed child exiting");
+  // Defined after the kill, so the child's scan could not start it.
+  await defineScheduled("dead-run-app", "unblocked");
+
+  const lease = await runLeaseRow("dead-run");
+  assert.equal(lease?.leaseOwner, held.leaseOwner, "the run lease still names the killed process");
+  const resumesAt = lease.leaseExpiresAt;
+  assert.ok(resumesAt - killedAt > 8 * 60_000,
+    `the run lease holds more than 8 minutes after the kill (${resumesAt - killedAt} ms)`);
+  const markBefore = await stored("dead-run");
+  const listedAt = Date.now();
+  const rows = await listAutomations.default.run({ scope: "personal" }, { userEmail: owner, appId: "dead-run-app" });
+  const dead = rows.find(row => row.name === "dead-run");
+  const unblocked = rows.find(row => row.name === "unblocked");
+  assert.equal(dead.lastStatus, "running", "the killed run's automation reads running");
+  assert.deepEqual(await runLeaseRow("dead-run"), lease, "listing left the run lease alone");
+  assert.deepEqual(await stored("dead-run"), markBefore, "listing left the running mark alone");
+  assert.equal(await runLeaseRow("unblocked"), null, "the other automation holds no run lease");
+  assert.notEqual(unblocked.lastStatus, "running", "the other automation is not running");
+  const unblockedNext = Date.parse(unblocked.nextRun);
+  assert.ok(unblockedNext >= listedAt && unblockedNext - listedAt <= 61_000,
+    `an automation no lease blocks lists its next run within a minute (${unblocked.nextRun})`);
+  assert.ok(dead.nextRun === null || Date.parse(dead.nextRun) >= resumesAt,
+    `the list named a next run before the killed run's lease lets the scheduler act (${dead.nextRun}, lease until ${
+      new Date(resumesAt).toISOString()})`);
+});
+
+test("the list names no next run while a dead scanner's lease blocks every scan", async () => {
+  await defineScheduled("stuck-app", "blocked");
+  await makeDue("blocked");
+  // A scanner that died two minutes into its scan, far longer than a scan takes, left this lease.
+  const takenAt = Date.now() - 2 * 60_000;
+  const resumesAt = takenAt + AUTOMATION_SCHEDULER_LEASE_MS;
+  const deadOwner = randomBytes(16).toString("hex");
+  await ensureHealthTable();
+  await getDbExec().execute({
+    sql: `INSERT INTO automation_scheduler_health (id, app_id, org_id, last_checked_at, last_dispatched_at, last_error,
+      runtime, updated_at, lease_owner, lease_expires_at) VALUES (?, ?, NULL, ?, NULL, NULL, 'recurring-jobs', ?, ?, ?)`,
+    args: ["stuck-app:global", "stuck-app", takenAt, takenAt, deadOwner, resumesAt],
+  });
+  await within(scheduler.processRecurringJobs(nextLaunch("stuck-app")), 30_000, "the tick");
+  const afterTick = await leaseRow("stuck-app");
+  assert.deepEqual([afterTick?.leaseOwner, afterTick?.lastCheckedAt], [deadOwner, takenAt],
+    "the tick could not scan while the dead scanner's lease held");
+  assert.deepEqual(await runsOf("stuck-app", "blocked"), [], "the tick started nothing");
+  const blocked = (await listAutomations.default.run({ scope: "personal" }, { userEmail: owner, appId: "stuck-app" }))
+    .find(row => row.name === "blocked");
+  assert.deepEqual(await leaseRow("stuck-app"), afterTick, "listing left the lease alone");
+  assert.ok(blocked.nextRun === null || Date.parse(blocked.nextRun) >= resumesAt,
+    `the list named a next run while a dead scanner's lease blocks every scan (${blocked.nextRun}, lease until ${
+      new Date(resumesAt).toISOString()})`);
 });
 
 // Trigger runs at quit: an event run and webhook call A are in flight and call B waits behind A. The child exits as
