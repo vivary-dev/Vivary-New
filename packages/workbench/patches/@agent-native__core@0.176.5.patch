@@ -3268,10 +3268,10 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..8badfba9f85cec794e3cf4345eeeea07
 +                                    }) })) : (_jsx("ul", { className: "mt-2 divide-y divide-border/60 border-y border-border/60", children: runs.map((run) => (_jsxs("li", { className: "flex items-center gap-2 py-1.5 text-xs", children: [_jsx(RunStatusDot, { status: run.status }), _jsx("span", { className: "shrink-0 text-muted-foreground", children: formatTimestamp(run.startedAt) }), _jsx("span", { className: "shrink-0 font-medium", children: run.status }), run.error ? (_jsx("span", { className: "min-w-0 flex-1 truncate text-muted-foreground", title: run.error, children: run.error })) : (_jsx("span", { className: "min-w-0 flex-1" })), run.finishedAt ? (_jsxs("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: [Math.round((run.finishedAt - run.startedAt) / 1000), "s"] })) : null] }, run.id))) }))] })] })] }) }));
  }
 diff --git a/dist/client/agent-page/use-jobs.js b/dist/client/agent-page/use-jobs.js
-index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..0e96c4ce55985982db88022961bfc37fad671e91 100644
+index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..b79aba955f83081c5b1deb7e42bc30e6e863f040 100644
 --- a/dist/client/agent-page/use-jobs.js
 +++ b/dist/client/agent-page/use-jobs.js
-@@ -6,6 +6,16 @@ function recurringParams(scope) {
+@@ -6,6 +6,19 @@ function recurringParams(scope) {
  function automationParams(scope) {
      return { scope: scope === "org" ? "organization" : "personal" };
  }
@@ -3281,32 +3281,59 @@ index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..0e96c4ce55985982db88022961bfc37f
 +// refetch while the page is hidden. refetchOnWindowFocus: true, set here
 +// against the house default, refetches data past its stale time when the page
 +// returns. Vivary does not mount useDbSync, which the house client's
-+// refetchOnWindowFocus: false assumes. networkMode: "always" keeps fetching
-+// while the browser reports no network, because the server usually runs on
-+// this computer, and one that does not answer should fail and show a note.
++// refetchOnWindowFocus: false assumes. networkMode: "always", on these queries
++// and on the page's changes below, keeps requests going while the browser
++// reports no network, because the server usually runs on this computer, and
++// one that does not answer should fail and show a note or an error. It also
++// turns off React Query's refetch on reconnect, so the queries set
++// refetchOnReconnect: true to keep it.
 +const AUTOMATION_REFRESH_MS = 30_000;
  /**
   * Deploy-scoped and fixed for the life of the process, so it is cached far
   * longer than the automation lists.
-@@ -21,10 +31,10 @@ export function useScheduledTriggerState() {
+@@ -21,16 +34,17 @@ export function useScheduledTriggerState() {
      return { kind: "loading" };
  }
  export function useRecurringJobs(scope) {
 -    return useActionQuery("list-recurring-jobs", recurringParams(scope), { staleTime: 5_000 });
-+    return useActionQuery("list-recurring-jobs", recurringParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true, networkMode: "always" });
++    return useActionQuery("list-recurring-jobs", recurringParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true, refetchOnReconnect: true, networkMode: "always" });
  }
  export function useAutomations(scope) {
 -    return useActionQuery("list-automations", automationParams(scope), { staleTime: 5_000 });
-+    return useActionQuery("list-automations", automationParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true, networkMode: "always" });
++    return useActionQuery("list-automations", automationParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true, refetchOnReconnect: true, networkMode: "always" });
  }
  export function useManageRecurringJob(scope) {
      const queryClient = useQueryClient();
-@@ -118,6 +128,9 @@ export function useAutomationRuns(scope, name, active) {
+     const params = recurringParams(scope);
+     const queryKey = ["action", "list-recurring-jobs", params];
+     return useActionMutation("manage-recurring-job", {
++        networkMode: "always",
+         onMutate: async (variables) => {
+             await queryClient.cancelQueries({ queryKey });
+             const previous = queryClient.getQueryData(queryKey);
+@@ -59,6 +73,7 @@ export function useManageAutomation(scope) {
+     const params = automationParams(scope);
+     const queryKey = ["action", "list-automations", params];
+     return useActionMutation("manage-automation", {
++        networkMode: "always",
+         onMutate: async (variables) => {
+             await queryClient.cancelQueries({ queryKey });
+             const previous = queryClient.getQueryData(queryKey);
+@@ -85,6 +100,7 @@ export function useManageAutomation(scope) {
+ export function useRunAutomationNow() {
+     const queryClient = useQueryClient();
+     return useActionMutation("run-automation-now", {
++        networkMode: "always",
+         onSuccess: (_result, variables) => {
+             const scope = variables.scope === "organization" ? "organization" : "personal";
+             const name = variables.name ??
+@@ -118,6 +134,10 @@ export function useAutomationRuns(scope, name, active) {
      };
      return useActionQuery("list-automation-runs", params, {
          staleTime: 5_000,
 +        refetchInterval: AUTOMATION_REFRESH_MS,
 +        refetchOnWindowFocus: true,
++        refetchOnReconnect: true,
 +        networkMode: "always",
          enabled: active && Boolean(name),
      });

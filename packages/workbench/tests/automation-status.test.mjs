@@ -328,7 +328,7 @@ const jobsTabStubs = new Map([
     }
     export function useActionMutation(actionName, options) {
       const { method, skipActionQueryInvalidation, timeoutMs, ...rest } = options ?? {};
-      return useMutation({ ...rest, mutationFn: async () => ({}) });
+      return useMutation({ ...rest, mutationFn: async variables => globalThis.__proofTransport(actionName, variables) });
     }`],
   [path.join(CLIENT, "i18n.js"), i18nStub],
   [path.join(CLIENT, "components", "ui", "dialog.js"), dialogStub],
@@ -358,6 +358,12 @@ export async function mountJobsTab(rows) {
     const key = params.scope ? action + " " + params.scope : action;
     calls.set(key, (calls.get(key) ?? 0) + 1);
     if (rows.failing?.includes(key)) throw new Error("The server did not answer.");
+    if (action === "manage-automation" || action === "manage-recurring-job") {
+      const lists = action === "manage-automation" ? rows : rows.jobs;
+      lists[params.scope] = lists[params.scope].map(row => (row.name === params.name
+        ? { ...row, enabled: params.enabled } : row));
+      return {};
+    }
     if (action === "list-automations") return rows[params.scope];
     if (action === "list-recurring-jobs") return rows.jobs?.[params.scope] ?? [];
     if (action === "list-automation-runs") return rows.runs ?? [];
@@ -383,6 +389,23 @@ export async function mountJobsTab(rows) {
       const text = host.querySelector('[role="dialog"]')?.textContent ?? "";
       const fields = host.querySelector('[role="dialog"] dl');
       return fields ? text.slice(0, text.indexOf(fields.textContent)) : text;
+    },
+    belowPastRuns() {
+      const text = host.querySelector('[role="dialog"]')?.textContent ?? "";
+      return text.slice(text.lastIndexOf("Past runs"));
+    },
+    switchState(index) {
+      const control = host.querySelectorAll('[role="switch"]')[index];
+      return { checked: control.getAttribute("aria-checked"), disabled: control.hasAttribute("disabled") };
+    },
+    async toggle(index) {
+      await act(async () => { host.querySelectorAll('[role="switch"]')[index].click(); });
+      await settle();
+    },
+    async click(label, nth) {
+      const button = [...host.querySelectorAll("button")].filter(button => button.textContent.trim() === label).at(nth);
+      await act(async () => { button.click(); });
+      await settle();
     },
     section(index) {
       const section = host.querySelectorAll("section")[index];
@@ -743,7 +766,8 @@ test("a failed runs refresh keeps the past runs and notes it under Past runs unt
     await timers.fire(30_000);
     assert.ok(tab.calls("list-automation-runs", "personal") > fetched, "the timed refresh asks for the runs again");
     assert.equal(tab.pastRuns(), 1, "a failed refresh keeps the run listed");
-    assert.match(tab.dialogText(), runsNote, "Past runs notes that it may be out of date");
+    assert.match(tab.belowPastRuns(), runsNote, "the Past runs note sits under the Past runs heading");
+    assert.doesNotMatch(tab.detailsAboveFields(), runsNote, "the Past runs note stays out of the space above the fields");
     assert.doesNotMatch(tab.dialogText(), detailsNote, "a failed runs refresh leaves the Details fields without a note");
     assert.doesNotMatch(tab.text(), /Could not load run history/, "a failed refresh after an answer is no load error");
     rows.failing = [];
@@ -754,16 +778,24 @@ test("a failed runs refresh keeps the past runs and notes it under Past runs unt
   }
 });
 
-test("a list and Past runs that fail their first load show their load errors and no refresh note", async t => {
+test("each list and Past runs that fail their first load show their load errors and no refresh note", async t => {
   const proof = await jobsTabProof();
   const restoreDom = installDom();
   t.after(restoreDom);
-  const tab = await proof.mountJobsTab({ personal: [afterTick], organization: [],
-    failing: ["list-automations organization", "list-automation-runs personal"] });
+  for (const [list, section] of [["list-recurring-jobs personal", 0], ["list-automations personal", 0],
+    ["list-recurring-jobs organization", 1], ["list-automations organization", 1]]) {
+    const tab = await proof.mountJobsTab({ ...everyList(), failing: [list] });
+    try {
+      assert.match(tab.section(section).text, /Could not load all automations/,
+        `a failed first load of ${list} shows the load error`);
+      assert.doesNotMatch(tab.text(), sectionNote, `a failed first load of ${list} shows no refresh note`);
+    } finally {
+      await tab.unmount();
+    }
+  }
+  const tab = await proof.mountJobsTab({ ...everyList(), failing: ["list-automation-runs personal"] });
   try {
-    assert.match(tab.section(1).text, /Could not load all automations/, "a failed first load shows the load error");
-    assert.doesNotMatch(tab.text(), sectionNote, "a failed first load shows no refresh note");
-    await tab.openDetails();
+    await tab.openDetails("Details", 2);
     assert.match(tab.dialogText(), /Could not load run history/, "a failed first runs load shows the runs load error");
     assert.doesNotMatch(tab.dialogText(), runsNote, "a failed first runs load shows no refresh note");
   } finally {
@@ -800,6 +832,65 @@ test("the timed refresh keeps fetching and noting failures while the browser rep
       "failed organization list refreshes with no network show the organization section's note");
     assert.match(tab.dialogText(), detailsNote, "a failed list refresh with no network shows the Details note");
     assert.match(tab.dialogText(), runsNote, "a failed runs refresh with no network shows the Past runs note");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a change from the page is sent at once while the browser reports no network", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    proof.resetOnline();
+    timers.restore();
+    restoreDom();
+  });
+  const tab = await proof.mountJobsTab(everyList());
+  try {
+    await tab.online(false);
+    for (const [entry, index, action] of [["a recurring job", 0, "manage-recurring-job"],
+      ["an automation", 1, "manage-automation"]]) {
+      const sent = tab.calls(action, "personal");
+      await tab.toggle(index);
+      assert.equal(tab.calls(action, "personal"), sent + 1, `pausing ${entry} with no network sends the change at once`);
+      assert.deepEqual(tab.switchState(index), { checked: "false", disabled: false },
+        `the switch shows ${entry} paused and is free again once the change settles`);
+      await timers.fire(30_000);
+      assert.equal(tab.switchState(index).checked, "false", `a refresh after the change keeps ${entry} paused`);
+    }
+    const ran = tab.calls("run-automation-now", "personal");
+    await tab.click("Run now", 2);
+    await tab.click("Run now", -1);
+    assert.equal(tab.calls("run-automation-now", "personal"), ran + 1, "Run now with no network sends the run at once");
+    assert.equal(tab.dialogText(), "", "the Run now dialog closes once the run is sent");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a return of the network refetches the automation data that went stale", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    proof.resetOnline();
+    timers.restore();
+    restoreDom();
+  });
+  const tab = await proof.mountJobsTab(everyList());
+  const watched = [["list-automations", { scope: "personal" }], ["list-recurring-jobs", { scope: "personal" }],
+    ["list-automations", { scope: "organization" }], ["list-recurring-jobs", { scope: "organization" }],
+    ["list-automation-runs", { scope: "personal", name: "digest" }]];
+  try {
+    await tab.openDetails("Details", 2);
+    await tab.online(false);
+    const fetched = watched.map(([action, { scope }]) => tab.calls(action, scope));
+    for (const [action, params] of watched) await tab.age(action, params);
+    await tab.online(true);
+    watched.forEach(([action, { scope }], index) => {
+      assert.ok(tab.calls(action, scope) > fetched[index], `a return of the network fetches ${action} ${scope} again`);
+    });
   } finally {
     await tab.unmount();
   }
