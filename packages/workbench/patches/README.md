@@ -1496,8 +1496,11 @@ page's error line. Run now writes nothing before the answer, so it has nothing
 to roll back, and shows its error in its dialog and in the page's error line.
 A page opened from another device through browser access keeps React Query's
 default for its changes. While that device reports no network, a change waits,
-and React Query sends it when the network returns. A failed read there still
-shows the refresh note. A failed refresh keeps the last answer. Past runs
+and React Query sends it when the network returns. Until then the change stays
+pending, so every switch and control on the page stays disabled, and a
+confirmed Run now keeps its dialog open, until the device is online and the
+page is visible again. Dev behaved the same way before #141. A failed read
+there still shows the refresh note. A failed refresh keeps the last answer. Past runs
 keeps its list, and a section shows "Could not load all automations." only for
 a list with no answer, the rule `useScheduledTriggerState` already follows.
 The 30 second refresh also retries a list or a run history that never
@@ -1639,12 +1642,12 @@ thread, by giving it a scope or a route that loads it, and the test expects
 the control. Upstream could take the #141 identity, opener, interval, and
 failed-refresh rules. `refetchOnWindowFocus: true` fits only a client that
 does not mount `useDbSync`, which runs its own focus refetch. `networkMode:
-"always"` on the queries, and on the page's changes on a loopback page, is
-Vivary's choice too. It fits a client whose server runs on the same computer,
-where the browser's network flag says nothing about the server.
-`refetchOnReconnect: true` only restores what that option turns off. A hosted
-app would keep React Query's default, which pauses while the browser reports
-no network and refetches on reconnect. Remove the #141 part when an upstream
+"always"` on the queries is Vivary's choice too, on every page. A read that
+cannot reach the server then fails and shows the refresh note, rather than
+pausing with no message. On the page's changes it applies only to a loopback
+page, whose server runs on the same computer, so the browser's network flag
+says nothing about that server. `refetchOnReconnect: true` only restores the
+reconnect refetch that `networkMode: "always"` turns off. Remove the #141 part when an upstream
 release keeps Details on the current list entry, refreshes the lists while the
 tab is open, and passes the twenty-four #141 cases.
 
