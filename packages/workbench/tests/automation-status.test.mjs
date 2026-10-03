@@ -356,6 +356,7 @@ export async function mountJobsTab(rows) {
     const key = params.scope ? action + " " + params.scope : action;
     calls.set(key, (calls.get(key) ?? 0) + 1);
     if (action === "list-automations") return rows[params.scope];
+    if (action === "list-recurring-jobs") return rows.jobs?.[params.scope] ?? [];
     if (action === "get-scheduled-trigger-status") return { available: true };
     return [];
   };
@@ -526,6 +527,25 @@ test("every Details control fetches the automation list again", async t => {
       const fetched = tab.calls("list-automations", "personal");
       await tab.openDetails(label, nth);
       assert.ok(tab.calls("list-automations", "personal") > fetched, `${control} fetches the automation list again`);
+    }
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("opening Details fetches the list that holds the entry", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const job = { ...beforeTick, id: "res-legacy", name: "legacy", instructions: "Check the build." };
+  const shared = { ...beforeTick, id: "res-shared", name: "shared", scope: "organization" };
+  const tab = await proof.mountJobsTab({ personal: [], organization: [shared], jobs: { personal: [job] } });
+  try {
+    for (const [entry, action, scope, nth] of [["a personal recurring job", "list-recurring-jobs", "personal", 0],
+      ["an organization automation", "list-automations", "organization", 2]]) {
+      const fetched = tab.calls(action, scope);
+      await tab.openDetails("Details", nth);
+      assert.ok(tab.calls(action, scope) > fetched, `opening Details on ${entry} fetches ${action} ${scope} again`);
     }
   } finally {
     await tab.unmount();
