@@ -283,9 +283,10 @@ Windows check closed an active scheduled run in 330 ms and an active webhook run
 in 310 ms, with all observed application processes gone within 583 ms and 559 ms.
 Its idle close took 4.2 seconds. These are measured runs, not a fixed close-time
 guarantee. The 15-second fallback remains configured. Windows desktop shutdown
-keeps the server alive until successful cleanup or that parent fallback, so failed
-cleanup retains the root PID needed to stop its descendants. Fresh Windows
-acceptance of that correction remains pending in the
+keeps the server alive until successful cleanup or that parent fallback. If the
+desktop process disconnects, the server gives cleanup 15 seconds before attempting
+to stop its own process tree. Fresh Windows acceptance of that parent-loss
+correction remains pending in the
 [acceptance receipt](product/multi-project/receipts/138-desktop-quit-exit.md).
 The next launch checks schedules about 70
 seconds after it starts. If Vivary was ended without quitting, for example from Task

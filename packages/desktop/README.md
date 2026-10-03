@@ -214,9 +214,13 @@ the usual Electron desktop libraries, including GTK 3 and its GSettings schemas.
 There is one application instance per user. The window starts its own local
 server, waits for the actual app route, and uses parent-child IPC for graceful
 shutdown. The server exits normally after local-work cleanup settles and Nitro
-closes. Windows desktop shutdown holds the server alive during cleanup. If a stop
-or Nitro close fails, or cleanup stays pending, the live server PID remains
-available for the desktop's existing 15-second process-tree kill. Direct CLI and
+closes. Windows desktop shutdown keeps IPC open during cleanup. If a stop or
+Nitro close fails, or cleanup stays pending, the server PID remains available for
+the desktop's existing 15-second process-tree kill. If Electron disconnects,
+including during an existing shutdown, the server gives cleanup 15 seconds before
+attempting to stop its own tree. That command is bounded to five seconds, and the
+server exits nonzero if it returns. Successful cleanup exits before the fallback.
+Direct CLI and
 non-Windows cleanup failures still exit with failure after all stops settle.
 POSIX also cleans the owned process group if the server exits. An unexpected
 Windows server crash can still remove the root needed by its tree fallback.

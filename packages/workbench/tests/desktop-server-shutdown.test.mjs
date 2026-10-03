@@ -351,8 +351,8 @@ if (role === "parent-loss-owner") {
             const fallback = JSON.parse(await readFile(receipt("taskkill"), "utf8"));
             // Linux records the Windows OS boundary. Windows executes the real command above.
             // guard:allow-env-credential - Match the fixture OS taskkill path.
-            assert.equal(path.win32.normalize(fallback.command),
-              path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe"));
+            const expectedTaskkill = path.win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe");
+            assert.equal(path.win32.normalize(fallback.command), expectedTaskkill);
             assert.deepEqual(fallback.args, ["/PID", String(serverPid), "/T", "/F"]);
             assert.ok(fallback.timeout > 0 && fallback.timeout <= 5000, "self taskkill is bounded");
             assert.equal(await readFile(receipt("exit-code"), "utf8"), "1", "server really exits after fallback returns");
