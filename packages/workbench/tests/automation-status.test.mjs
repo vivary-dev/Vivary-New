@@ -379,6 +379,11 @@ export async function mountJobsTab(rows) {
     controls: label => [...host.querySelectorAll("button")].filter(button => button.textContent.trim() === label).length,
     pastRuns: () => host.querySelector('[role="dialog"]')?.querySelectorAll("li").length ?? 0,
     dialogText: () => host.querySelector('[role="dialog"]')?.textContent ?? "",
+    detailsAboveFields() {
+      const text = host.querySelector('[role="dialog"]')?.textContent ?? "";
+      const fields = host.querySelector('[role="dialog"] dl');
+      return fields ? text.slice(0, text.indexOf(fields.textContent)) : text;
+    },
     section(index) {
       const section = host.querySelectorAll("section")[index];
       const text = section.textContent;
@@ -490,6 +495,11 @@ const afterTick = { ...listed, lastCheck: iso(tick + 60_000), nextRun: iso(tick 
   lastRun: iso(tick + 20_000), lastStatus: "success" };
 const pastRun = { id: "run-1", status: "success", error: null, threadId: "thread-1", runId: "run-1",
   startedAt: tick + 20_000, finishedAt: tick + 23_000, errorCode: null, automation: "digest" };
+const legacyJob = { ...afterTick, id: "res-legacy", name: "legacy", instructions: "Check the build." };
+const everyList = () => ({ personal: [afterTick],
+  organization: [{ ...afterTick, id: "res-shared", name: "shared", scope: "organization" }],
+  jobs: { personal: [legacyJob],
+    organization: [{ ...legacyJob, id: "res-organization-legacy", name: "organization-legacy", scope: "organization" }] } });
 
 const sectionNote = /Could not refresh automations\. The values shown may be out of date\./;
 const detailsNote = /Could not refresh\. These values may be out of date\./;
@@ -660,11 +670,7 @@ test("a failed refresh of each list notes it in its section and in Details only 
     timers.restore();
     restoreDom();
   });
-  const job = { ...afterTick, id: "res-legacy", name: "legacy", instructions: "Check the build." };
-  const rows = { personal: [afterTick],
-    organization: [{ ...afterTick, id: "res-shared", name: "shared", scope: "organization" }],
-    jobs: { personal: [job],
-      organization: [{ ...job, id: "res-organization-legacy", name: "organization-legacy", scope: "organization" }] } };
+  const rows = everyList();
   const tab = await proof.mountJobsTab(rows);
   try {
     await tab.openDetails("Details", 6);
@@ -684,6 +690,36 @@ test("a failed refresh of each list notes it in its section and in Details only 
       await timers.fire(30_000);
       assert.doesNotMatch(tab.text(), sectionNote, `the next successful refresh clears the note for ${list}`);
     }
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("Details on a recurring job notes its own list, and an automation's Details ignores the job lists", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const rows = everyList();
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    for (const [entry, nth, list] of [["a personal recurring job", 0, "list-recurring-jobs personal"],
+      ["an organization recurring job", 4, "list-recurring-jobs organization"]]) {
+      await tab.openDetails("Details", nth);
+      rows.failing = [list];
+      await timers.fire(30_000);
+      assert.match(tab.detailsAboveFields(), detailsNote, `Details on ${entry} notes ${list} above its fields`);
+      rows.failing = [];
+      await timers.fire(30_000);
+      await tab.closeDetails();
+    }
+    await tab.openDetails("Details", 2);
+    rows.failing = ["list-recurring-jobs personal", "list-recurring-jobs organization"];
+    await timers.fire(30_000);
+    assert.doesNotMatch(tab.dialogText(), detailsNote, "Details on an automation ignores failed recurring job lists");
   } finally {
     await tab.unmount();
   }
@@ -744,21 +780,24 @@ test("the timed refresh keeps fetching and noting failures while the browser rep
     timers.restore();
     restoreDom();
   });
-  const rows = { personal: [afterTick], organization: [], runs: [pastRun] };
+  const rows = { ...everyList(), runs: [pastRun] };
   const tab = await proof.mountJobsTab(rows);
   const watched = [["list-automations", "personal"], ["list-recurring-jobs", "personal"],
-    ["list-automation-runs", "personal"]];
+    ["list-automations", "organization"], ["list-recurring-jobs", "organization"], ["list-automation-runs", "personal"]];
   try {
-    await tab.openDetails();
+    await tab.openDetails("Details", 2);
     await tab.online(false);
     const fetched = watched.map(([action, scope]) => tab.calls(action, scope));
     await timers.fire(30_000);
     watched.forEach(([action, scope], index) => {
       assert.ok(tab.calls(action, scope) > fetched[index], `the timer fetches ${action} ${scope} with no network`);
     });
-    rows.failing = ["list-automations personal", "list-automation-runs personal"];
+    rows.failing = ["list-automations personal", "list-automation-runs personal", "list-automations organization",
+      "list-recurring-jobs organization"];
     await timers.fire(30_000);
     assert.match(tab.section(0).aboveRows, sectionNote, "a failed list refresh with no network shows the section note");
+    assert.match(tab.section(1).aboveRows, sectionNote,
+      "failed organization list refreshes with no network show the organization section's note");
     assert.match(tab.dialogText(), detailsNote, "a failed list refresh with no network shows the Details note");
     assert.match(tab.dialogText(), runsNote, "a failed runs refresh with no network shows the Past runs note");
   } finally {

@@ -1539,7 +1539,7 @@ after the heartbeat keep their stored value, and a resumed automation shows
 the heartbeat. The first two failed on the patch before this round's fix. The
 other fixtures are backdated an hour, so they predate the heartbeat.
 
-Issue #141 added fifteen cases to that file. They bundle Core's real
+Issue #141 added sixteen cases to that file. They bundle Core's real
 `AgentJobsTab.js`, `AutomationDetailsDialog.js`, and `use-jobs.js`, run the
 hooks on React Query with a fake transport, and render the tab under linkedom.
 An open Details dialog follows new list data. Opening Details fetches its list
@@ -1559,23 +1559,27 @@ keeps the row and the Details values, shows the section note and the Details
 note but no Past runs note, and the next successful refresh clears both notes.
 A failed refresh of each of the four lists shows the section note above that
 section's rows and not in the other section, and the Details note of an open
-organization automation only for its own list. A failed runs refresh keeps
+organization automation only for its own list. Details on a personal and on
+an organization recurring job shows the Details note above its fields when
+that job list fails, and an automation's Details shows none when only the job
+lists fail. A failed runs refresh keeps
 the runs listed, shows the Past runs note and no Details note, and the next
 successful runs refresh clears it. A list and Past runs that fail their first
 load show their load errors and no refresh note. While the browser reports no
-network, the timer still fetches the lists and the runs, and failed fetches
-still show the notes. A hidden window skips the timer, and a return refetches
-each of the four lists and the runs once they are stale. The first three
-failed on the patch before the fix. Each of 49 mutations, one rule of the fix
-reverted or broken alone in the installed Core, fails a named case. They cover
-the snapshot, the key's makeup, each opener, the list each opener refetches
-and that it refetches no other, closing, Past runs stopping after Close, the
-key clearing on departure, each interval and its length, the refetch on
-return, fetching while the browser reports no network, both failed-refresh
-rules, the section note for each list and only in its own section, the
-Details note for its own list only, the Past runs note for its runs only, the
-section and Past runs notes reading `isRefetchError` and not `isError`, and
-each note clearing on the next successful refresh.
+network, the timer still fetches all four lists and the runs, and failed
+fetches still show the notes in both sections and in Details. A hidden window
+skips the timer, and a return refetches each of the four lists and the runs
+once they are stale. The first three failed on the patch before the fix. Each
+of 53 mutations, one rule of the fix reverted or broken alone in the installed
+Core, fails a named case. They cover the snapshot, the key's makeup, each
+opener, the list each opener refetches and that it refetches no other,
+closing, Past runs stopping after Close, the key clearing on departure, each
+interval and its length, the refetch on return, fetching in both scopes while
+the browser reports no network, both failed-refresh rules, the section note
+for each list and only in its own section, the Details note for its own list
+only, a job's as well as an automation's, the Past runs note for its runs
+only, the section and Past runs notes reading `isRefetchError` and not
+`isError`, and each note clearing on the next successful refresh.
 
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
@@ -1587,7 +1591,7 @@ the control. Upstream could take the #141 identity, opener, interval, and
 failed-refresh rules. `refetchOnWindowFocus: true` fits only a client that
 does not mount `useDbSync`, which runs its own focus refetch. Remove the #141
 part when an upstream release keeps Details on the current list entry,
-refreshes the lists while the tab is open, and passes the fifteen #141 cases.
+refreshes the lists while the tab is open, and passes the sixteen #141 cases.
 
 ## Automation runs at quit
 
