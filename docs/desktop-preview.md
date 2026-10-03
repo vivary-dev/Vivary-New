@@ -285,8 +285,10 @@ Its idle close took 4.2 seconds. These are measured runs, not a fixed close-time
 guarantee. The 15-second fallback remains configured. Windows desktop shutdown
 keeps the server alive until successful cleanup or that parent fallback. If the
 desktop process disconnects, the detached server gives cleanup 15 seconds before attempting
-to stop its own process tree. Fresh Windows acceptance of that parent-loss
-correction remains pending in the
+to stop its own process tree. The fresh `d8cb7665` package passed idle, scheduled and webhook normal quits,
+but an unexpected server exit left a real preview and its child alive. Active-preview
+normal quit and parent-loss acceptance remain unrun. The unresolved failure and
+remaining checks are recorded in the
 [acceptance receipt](product/multi-project/receipts/138-desktop-quit-exit.md).
 The next launch checks schedules about 70
 seconds after it starts. If Vivary was ended without quitting, for example from Task

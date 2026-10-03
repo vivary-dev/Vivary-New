@@ -223,7 +223,9 @@ server exits nonzero if it returns. Successful cleanup exits before the fallback
 Direct CLI and
 non-Windows cleanup failures still exit with failure after all stops settle.
 POSIX also cleans the owned process group if the server exits. An unexpected
-Windows server crash can still remove the root needed by its tree fallback.
+Windows server crash was observed to leave a real shell-launched preview and its
+ordinary child alive on the d8cb7665 package. This remains an unresolved merge
+blocker. Active-preview normal quit and parent-loss package checks remain unrun.
 The shutdown regression exercises controlled Windows cleanup failures with a
 real descendant and `taskkill /T /F` when run on Windows. Packaged acceptance
 and its limits belong to the [issue receipt](../../docs/product/multi-project/receipts/138-desktop-quit-exit.md).
