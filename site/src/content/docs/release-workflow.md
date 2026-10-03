@@ -180,6 +180,23 @@ dependency rewrite to make an unrelated PR green. The historical red/green contr
 recorded in `CHANGELOG.md`; the CI workflow contract and its tests prevent the command,
 working directory, job boundary, or install-before-audit ordering from drifting.
 
+### Astro remote-image dependency replacement
+
+The site replaces Astro 7.3.3's vulnerable `http-cache-semantics` dependency with
+a private local module, `@vivary/astro-no-cache-policy`. Its source and maintenance
+contract are in [the policy README](https://github.com/vivary-dev/vivary/blob/dev/site/vendor/astro-no-cache-policy/README.md).
+No patched upstream release was available for GHSA-ch52-4w7c-c8xp on 2026-10-03.
+The replacement assigns zero freshness to newly fetched or revalidated remote
+images. Astro retains its image storage, validators, and stale-on-error behavior.
+The current site's optimized assets are local.
+
+The manifest pins Astro to the reviewed caller version. Its scoped override
+uses the direct local dependency, and the lockfile contains no registry copy
+of `http-cache-semantics`. The live audit command and severity threshold remain
+unchanged. Check actual Astro-relative resolution as well as the audit result.
+Before upgrading Astro or removing this replacement, inspect its callers and run
+the clean install, remote-helper integration tests, site build, and link check.
+
 ## 4. Make local CLI truth explicit before command smokes
 
 Build, smoke, tag, and publish only from a dedicated clean checkout/worktree at the
