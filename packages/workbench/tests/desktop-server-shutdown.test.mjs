@@ -58,6 +58,8 @@ if (role === "parent-loss-owner") {
   environment.VIVARY_DESKTOP_HOST = "1";
   const server = fork(fileURLToPath(import.meta.url), [scenario, directory, "parent-loss"], {
     env: environment, execArgv: ["--import", "tsx"], stdio: ["ignore", "ignore", "ignore", "ipc"],
+    // Survive the intermediary's Windows job closing so production observes IPC loss.
+    detached: nativeWindows, windowsHide: true,
   });
   writeFileSync(path.join(directory, "server-pid"), String(server.pid));
   server.on("message", message => {
@@ -80,10 +82,11 @@ if (role === "parent-loss-owner") {
     writeFileSync(receipt("taskkill"), JSON.stringify({ command, args, timeout: options?.timeout }));
     return { status: 0, signal: null };
   };
-  if (nativeWindows && ["windows-pending", "windows-preview-failure", "windows-close-failure"].includes(role)) {
+  if (nativeWindows && ["windows-pending", "windows-preview-failure", "windows-close-failure", "windows-root-only-kill"].includes(role)) {
     // The descendant has no IPC or pipe that could keep its server parent alive.
     const descendant = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-      stdio: "ignore", windowsHide: true,
+      // Tree cleanup must not pass merely because the server's Windows job closes.
+      stdio: "ignore", detached: true, windowsHide: true,
     });
     await new Promise((resolve, reject) => {
       descendant.once("spawn", resolve);
@@ -183,9 +186,12 @@ if (role === "parent-loss-owner") {
   for (const scenario of [
     "shutdown", "disconnect", "failure", "hosted", "windows-success",
     "windows-pending", "windows-preview-failure", "windows-close-failure",
-    "windows-standalone-failure",
+    "windows-standalone-failure", "windows-root-only-kill",
   ]) {
-    test(`desktop lifecycle: ${scenario}`, { timeout: nativeWindows ? 20000 : 10000 }, async () => {
+    test(`desktop lifecycle: ${scenario}`, {
+      timeout: nativeWindows ? 20000 : 10000,
+      skip: scenario === "windows-root-only-kill" && !nativeWindows,
+    }, async () => {
       const directory = await mkdtemp(path.join(os.tmpdir(), "vivary-shutdown-"));
       const environment = { ...process.env };
       delete environment.VIVARY_STANDALONE_HOST;
@@ -214,6 +220,20 @@ if (role === "parent-loss-owner") {
       try {
         await until(() => ready || result, "child becomes ready");
         assert.equal(result, undefined, stderr);
+        if (scenario === "windows-root-only-kill") {
+          const descendantPid = Number(await readFile(path.join(directory, "descendant-pid"), "utf8"));
+          assert.ok(Number.isSafeInteger(descendantPid) && descendantPid > 0, "fixture descendant PID is valid");
+          assert.ok(isAlive(child.pid), "fixture server is live before root-only termination");
+          assert.ok(isAlive(descendantPid), "detached descendant is live before root-only termination");
+          // Terminate only the root process. This deliberately omits taskkill /T.
+          assert.ok(child.kill("SIGKILL"), "root-only termination kills the server");
+          await until(() => result, "root-only server termination completes");
+          await exited;
+          await until(() => !isAlive(child.pid), "root-only server PID is gone");
+          await delay(200);
+          assert.ok(isAlive(descendantPid), "root-only termination must leave the detached descendant alive");
+          return;
+        }
         if (scenario === "disconnect") child.disconnect();
         else child.send({ type: scenario === "hosted" || standalone ? "signal" : "shutdown" });
         if (scenario.startsWith("windows-")) {
