@@ -158,26 +158,30 @@ hook or deployment status; merging its docs does not publish a website.
 ### Live npm advisory gate
 
 The site CI job runs `node scripts/audit.mjs` from `site/` immediately after `npm ci`.
-The script runs `npm audit --json --offline=false`, so an `offline` setting in an
-`.npmrc` file or the environment cannot empty the report. HIGH and CRITICAL advisories
-block the job unless a current exception covers them. Lower-severity findings don't
-block, and a passing run lists them, so they stay visible without turning every
-advisory-database change into a release blocker. This is the selected threshold for
-[#232](https://github.com/vivary-dev/vivary-cli/issues/232). It catches
-release-threatening dependency defects while limiting unrelated CI churn.
+The script runs `npm audit --json` with `--offline=false`,
+`--registry=https://registry.npmjs.org/`, `--include=dev`, `--include=optional`, and
+`--include=peer`. Each flag outranks the same setting from any `.npmrc` file,
+`npm_config_*` variable, or `NODE_ENV=production`, so none of those can empty the
+report, send the advisory request to another registry, or drop a dependency type from
+it. Other settings in an `.npmrc` file, such as a proxy, stay with review. HIGH and
+CRITICAL advisories block the job unless a current exception covers them.
+Lower-severity findings don't block, and a passing run lists them, so they stay
+visible without turning every advisory-database change into a release blocker. This is
+the selected threshold for [#232](https://github.com/vivary-dev/vivary-cli/issues/232).
+It catches release-threatening dependency defects while limiting unrelated CI churn.
 
-The script also fails when npm's output is not a version 2 report, audited no
+The script also fails when npm's output is not a version 2 report, lists no
 dependencies, lacks the vulnerabilities object or an entry's `via` list, names a
 severity other than info, low, moderate, high, or critical, gives a package a severity
-that no advisory explains, or counts more or fewer high or critical packages than it
-lists.
+that none of its listed sources explains, or counts more or fewer high or critical
+packages than it lists.
 
 The audit reads live registry data, so a site-scoped PR can turn red without changing
 the lockfile. When that happens, a maintainer:
 
-1. Reruns `node scripts/audit.mjs` from `site/` and records the advisory and affected
-   dependency path. `npm audit --offline=false` lists every finding, including the
-   ones an exception covers.
+1. Reruns `node scripts/audit.mjs` from `site/` and records the advisory it names, then
+   runs `npm audit --offline=false` for the dependency path and every finding,
+   including the ones an exception covers.
 2. Distinguishes a registry transport failure from a vulnerability result, and retries
    the former without claiming the dependency state is green.
 3. Opens a bounded dependency-remediation slice and reviews the resulting lockfile.
@@ -200,9 +204,11 @@ them with the current UTC date. The audit fails unless every entry meets these r
 
 An entry covers its advisory only in its own package and only up to the reviewed
 severity. The same GHSA id in another package, or at a higher severity, fails the
-audit. GHSA ids match in any letter case, and an advisory URL in another form matches
-no entry. An expired entry fails the audit even after its advisory is gone, so someone
-must remove it or review it again and set new dates.
+audit. GHSA ids match in any letter case, and an advisory URL that doesn't end in
+`/<GHSA id>` matches no entry. An expired entry fails the audit even after its advisory
+is gone, so someone must remove it or review it again and set new dates. The site tests
+use their own entry, so removing or renewing the live one changes only the test that
+checks the live list.
 
 The site job runs only when a change touches `site/`, `docs/`, `README.md`,
 `CHANGELOG.md`, or `.github/workflows/ci.yml`, the paths the `changed paths` job
@@ -215,9 +221,15 @@ Do not add `continue-on-error`, skip the audit, weaken the threshold, add an exc
 outside the review above, or use a forced dependency rewrite to make an unrelated PR
 green. `CHANGELOG.md` records the historical red/green control. The CI workflow
 contract and its tests prevent the command, working directory, job boundary, or
-install-before-audit ordering from drifting. They also refuse any other key on the
-audit step, `continue-on-error` anywhere in the site job, and a site job without its
-`npm run test:site` step.
+install-before-audit ordering from drifting. They also pin the site job's header and
+keys, the `changed paths` job's site filter and output, the audit step, and the
+`npm run test:site` step. They refuse `continue-on-error` in the site job and a
+top-level `env:` block. A top-level `defaults:` block or a step that writes
+`$GITHUB_ENV`, `$GITHUB_PATH`, or an `.npmrc` file before the audit stays with review.
+
+No branch protection or ruleset on `dev` or `main` requires a pull request, a review,
+or a passing check today. `dev` accepts direct pushes, and a red site job doesn't block
+a merge by itself. The gate holds only while maintainers don't merge a red PR.
 
 ## 4. Make local CLI truth explicit before command smokes
 

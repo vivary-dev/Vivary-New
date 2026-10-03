@@ -6,6 +6,46 @@ from pathlib import Path
 WORKFLOW = Path(".github/workflows/ci.yml")
 ARTIFACT_CHECKER = Path("scripts/check_release_artifacts.py")
 
+# The site job runs the audit only when its header and the changes job say it runs. A changed
+# condition, runner, path filter, or job-level key could skip or rewire the audit while its
+# steps still read as pinned.
+SITE_JOB_HEADER = (
+    "  site:\n"
+    "    name: site build\n"
+    "    needs: changes\n"
+    "    if: needs.changes.outputs.site == 'true'\n"
+    "    runs-on: ubuntu-latest\n"
+    "    timeout-minutes: 10\n"
+    "    steps:\n"
+)
+SITE_JOB_KEYS = ["name", "needs", "if", "runs-on", "timeout-minutes", "steps"]
+SITE_OUTPUT = "    outputs:\n      site: ${{ steps.scope.outputs.site }}\n"
+SITE_DETECT_STEP = (
+    "      - name: detect site inputs\n"
+    "        id: scope\n"
+    "        shell: bash\n"
+    "        env:\n"
+    "          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}\n"
+    "          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}\n"
+    "        run: |\n"
+    "          if [ -z \"$BASE_SHA\" ] || [[ \"$BASE_SHA\" =~ ^0+$ ]]; then\n"
+    "            echo \"site=true\" >> \"$GITHUB_OUTPUT\"\n"
+    "            exit 0\n"
+    "          fi\n"
+    "\n"
+    "          if ! changed=\"$(git diff --name-only \"$BASE_SHA...$HEAD_SHA\")\"; then\n"
+    "            echo \"site=true\" >> \"$GITHUB_OUTPUT\"\n"
+    "            exit 0\n"
+    "          fi\n"
+    "\n"
+    "          if printf '%s\\n' \"$changed\" | grep -Eq \\\n"
+    "            '^(site/|docs/|README\\.md$|CHANGELOG\\.md$|\\.github/workflows/ci\\.yml$)'; then\n"
+    "            echo \"site=true\" >> \"$GITHUB_OUTPUT\"\n"
+    "          else\n"
+    "            echo \"site=false\" >> \"$GITHUB_OUTPUT\"\n"
+    "          fi"
+)
+
 
 def release_build_commands() -> tuple[str, ...]:
     """One `uv build` line per Python distribution the release checker verifies."""
@@ -39,13 +79,13 @@ def job_block(text: str, name: str) -> str:
 
 
 def step_block(job: str, name: str) -> str:
-    """Return the one step with this name, up to the next step, or "" when it is missing or repeated."""
+    """Return the one step with this name, up to the next step or job key, or "" when it is missing or repeated."""
     marker = f"      - name: {name}\n"
     if job.count(marker) != 1:
         return ""
     start = job.index(marker)
-    end = job.find("\n      - ", start)
-    return job[start : end if end != -1 else len(job)].rstrip()
+    following = re.compile(r"\n {0,6}\S").search(job, start)
+    return job[start : following.start() if following else len(job)].rstrip()
 
 
 def main() -> None:
@@ -289,6 +329,27 @@ def main() -> None:
     require(
         "continue-on-error" not in site_job,
         "site job must not set continue-on-error",
+    )
+    require(
+        site_job.startswith(SITE_JOB_HEADER),
+        "site job header must keep its name, needs: changes, the site condition, "
+        "runs-on: ubuntu-latest, and timeout-minutes: 10, with no other keys",
+    )
+    require(
+        re.findall(r"(?m)^    ([A-Za-z_-]+):", site_job) == SITE_JOB_KEYS,
+        "site job must set no keys beyond its pinned header and steps",
+    )
+    require(
+        SITE_OUTPUT in changes_job,
+        "changes job must expose the site output of its detect site inputs step",
+    )
+    require(
+        step_block(changes_job, "detect site inputs") == SITE_DETECT_STEP,
+        "changes job must keep the pinned detect site inputs step and its site path filter",
+    )
+    require(
+        re.search(r"(?m)^env:", text[: text.index("\njobs:\n")]) is None,
+        "workflow must not set a top-level env block",
     )
 
     print(f"{WORKFLOW}: CI workflow contract passed")

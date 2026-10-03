@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { auditSite, npmAuditArgs } from '../scripts/audit-command.mjs';
 import { allowedAdvisories, auditFailures, utcDate } from '../scripts/audit-policy.mjs';
 
 // `npm audit --json` output recorded with npm 12.0.2 on 2026-10-03. `site` is this site's lockfile,
@@ -13,35 +14,70 @@ import { allowedAdvisories, auditFailures, utcDate } from '../scripts/audit-poli
 // lockfiles that pin http-cache-semantics 4.2.0 beside braces 3.0.2 or word-wrap 1.2.3.
 // `no-lockfile` is the error npm prints in a folder without a lockfile.
 const fixturePath = (name) => fileURLToPath(new URL(`fixtures/audit/${name}.json`, import.meta.url));
-const report = (name) => JSON.parse(readFileSync(fixturePath(name), 'utf8'));
-const lastAllowedDay = '2026-11-01';
-const exception = allowedAdvisories[0];
+const fixtureText = (name) => readFileSync(fixturePath(name), 'utf8');
+const report = (name) => JSON.parse(fixtureText(name));
 
-// Audits the site report with the allowed entry changed as given.
+// The rule tests own this entry for the advisory in the `site` fixture, so removing or renewing the
+// live entry changes only the live allowlist test.
+const entry = {
+  id: 'GHSA-ch52-4w7c-c8xp',
+  package: 'http-cache-semantics',
+  severity: 'high',
+  reason: 'The recorded site report carries this advisory.',
+  added: '2026-10-03',
+  expires: '2026-11-02',
+};
+const allowlist = [entry];
+const lastAllowedDay = '2026-11-01';
+
+// Audits the site report with the entry changed as given.
 const withEntry = (change, today = '2026-10-10') =>
-  auditFailures(report('site'), [{ ...exception, ...change }], today);
+  auditFailures(report('site'), [{ ...entry, ...change }], today);
 
 // Audits the site report after `change` edits it.
 const withSiteReport = (change, today = lastAllowedDay) => {
   const site = report('site');
   change(site);
-  return auditFailures(site, allowedAdvisories, today);
+  return auditFailures(site, allowlist, today);
 };
 const allowedAdvisory = (site) => site.vulnerabilities['http-cache-semantics'].via[0];
+
+// A recorded npm result for auditSite.
+const recorded = (name) => () => ({ stdout: fixtureText(name), stderr: '' });
+
+// The npm settings the command must pin, listed here apart from the command's own list.
+const requiredFlags = [
+  '--json',
+  '--offline=false',
+  '--registry=https://registry.npmjs.org/',
+  '--include=dev',
+  '--include=optional',
+  '--include=peer',
+];
 
 // The stub is a POSIX shell script, and CI runs these tests on Ubuntu only.
 const posixOnly = { skip: process.platform === 'win32' && 'the npm stub is a POSIX shell script' };
 
 // Runs the audit command with an `npm` stub first on PATH. The stub prints the fixture, or nothing,
-// only for an online audit. Otherwise it prints the empty report an offline npm config produces.
+// only when every required flag is present. Otherwise it prints the empty report an offline npm
+// config produces.
 const runAudit = (fixture) => {
   const bin = mkdtempSync(path.join(tmpdir(), 'site-audit-npm-'));
   try {
     const stub = path.join(bin, 'npm');
-    const online = fixture ? `cat '${fixturePath(fixture)}'` : 'exit 1';
     writeFileSync(
       stub,
-      `#!/bin/sh\ncase "$*" in\n  *--offline=false*) ${online} ;;\n  *) cat '${fixturePath('offline')}' ;;\nesac\n`,
+      [
+        '#!/bin/sh',
+        `for flag in ${requiredFlags.join(' ')}; do`,
+        '  case " $* " in',
+        '    *" $flag "*) ;;',
+        `    *) cat '${fixturePath('offline')}'; exit 0 ;;`,
+        '  esac',
+        'done',
+        fixture ? `cat '${fixturePath(fixture)}'` : 'exit 1',
+        '',
+      ].join('\n'),
     );
     chmodSync(stub, 0o755);
     return spawnSync(process.execPath, [fileURLToPath(new URL('../scripts/audit.mjs', import.meta.url))], {
@@ -53,14 +89,18 @@ const runAudit = (fixture) => {
   }
 };
 
+test('the live allowlist is valid today', () => {
+  assert.deepEqual(auditFailures(report('offline'), allowedAdvisories, utcDate(new Date())), []);
+});
+
 test('the allowed advisory alone passes', () => {
   const site = report('site');
   assert.match(auditFailures(site, [], lastAllowedDay).join('\n'), /GHSA-ch52-4w7c-c8xp/);
-  assert.deepEqual(auditFailures(site, allowedAdvisories, lastAllowedDay), []);
+  assert.deepEqual(auditFailures(site, allowlist, lastAllowedDay), []);
 });
 
 test('another high advisory fails', () => {
-  const failures = auditFailures(report('other-high'), allowedAdvisories, lastAllowedDay);
+  const failures = auditFailures(report('other-high'), allowlist, lastAllowedDay);
   assert.deepEqual(failures.sort(), [
     'high GHSA-grv7-fg5c-xmjg in braces <3.0.3: Uncontrolled resource consumption in braces',
     'high GHSA-vfj7-8cjw-p6xm in braces <=3.0.3: braces vulnerable to stack-exhaustion denial of service through deeply nested patterns',
@@ -111,7 +151,7 @@ test('advisory ids match in any letter case', () => {
   assert.deepEqual(withEntry({ id: 'ghsa-ch52-4w7c-c8xp' }), []);
 });
 
-test('an advisory URL in another form, or none, fails closed', () => {
+test('an advisory URL that does not end in the GHSA id, or none, fails closed', () => {
   const trailingSlash = withSiteReport((site) => {
     allowedAdvisory(site).url = 'https://github.com/advisories/GHSA-ch52-4w7c-c8xp/';
   });
@@ -126,16 +166,15 @@ test('an advisory URL in another form, or none, fails closed', () => {
 });
 
 test('an expired exception fails, even after its advisory is gone', () => {
-  const failures = auditFailures(report('site'), allowedAdvisories, '2026-11-02');
+  const failures = auditFailures(report('site'), allowlist, '2026-11-02');
   assert.match(failures[0], /^GHSA-ch52-4w7c-c8xp exception expired on 2026-11-02\./);
-  const clean = report('offline');
-  assert.deepEqual(auditFailures(clean, allowedAdvisories, '2026-11-02'), [failures[0]]);
+  assert.deepEqual(auditFailures(report('offline'), allowlist, '2026-11-02'), [failures[0]]);
 });
 
 test('an exception added in the future fails', () => {
-  assert.deepEqual(auditFailures(report('site'), allowedAdvisories, '2026-10-03'), []);
+  assert.deepEqual(auditFailures(report('site'), allowlist, '2026-10-03'), []);
   assert.match(
-    auditFailures(report('site'), allowedAdvisories, '2026-10-02')[0],
+    auditFailures(report('site'), allowlist, '2026-10-02')[0],
     /^GHSA-ch52-4w7c-c8xp exception was added on 2026-10-03, which is in the future\./,
   );
   assert.match(
@@ -193,7 +232,7 @@ test('an exception without a GHSA id, a package, or a reason fails', () => {
 
 test('a date that is not a UTC calendar date cannot serve as today', () => {
   for (const today of ['2026-10-3', undefined, 'Sat Oct 03 2026']) {
-    assert.deepEqual(auditFailures(report('site'), allowedAdvisories, today), [
+    assert.deepEqual(auditFailures(report('site'), allowlist, today), [
       `today must be a UTC date in YYYY-MM-DD form, not ${today}`,
     ]);
   }
@@ -208,26 +247,64 @@ test('utcDate gives the UTC calendar date of an instant', () => {
 test('a moderate advisory passes', () => {
   const moderate = report('moderate');
   assert.ok(moderate.metadata.vulnerabilities.moderate > 0);
-  assert.deepEqual(auditFailures(moderate, allowedAdvisories, lastAllowedDay), []);
+  assert.deepEqual(auditFailures(moderate, allowlist, lastAllowedDay), []);
 });
 
 test('npm output the audit cannot account for fails closed', () => {
+  const edited = (change) => () => {
+    const site = report('site');
+    change(site);
+    return site;
+  };
   const cases = [
     [() => report('no-lockfile'), /is not a version 2 report/],
-    [() => ({ ...report('offline'), metadata: { vulnerabilities: {}, dependencies: { total: 0 } } }), /audited no dependencies/],
-    [() => { const site = report('site'); delete site.vulnerabilities; return site; }, /has no vulnerabilities object/],
-    [() => { const site = report('site'); delete site.vulnerabilities.astro.via; return site; }, /has no via list for astro/],
-    [() => { const site = report('site'); allowedAdvisory(site).severity = 'High'; return site; }, /has an unknown severity for http-cache-semantics/],
-    [() => { const site = report('site'); site.vulnerabilities.astro.severity = 'severe'; return site; }, /has an unknown severity for /],
-    [() => { const site = report('site'); site.vulnerabilities.astro.via = ['missing-package']; return site; }, /has an unknown severity for astro/],
-    [() => { const site = report('site'); site.vulnerabilities.astro.severity = 'critical'; return site; }, /cannot trace the critical severity of astro to an advisory/],
-    [() => { const site = report('site'); site.metadata.vulnerabilities.high = 6; return site; }, /counts 6 high packages but lists 5/],
-    [() => { const site = report('site'); site.metadata.vulnerabilities.critical = 1; return site; }, /counts 1 critical packages but lists 0/],
+    [edited((site) => { site.metadata.dependencies.total = 0; }), /lists no dependencies/],
+    [edited((site) => { delete site.vulnerabilities; }), /has no vulnerabilities object/],
+    [edited((site) => { delete site.vulnerabilities.astro.via; }), /has no via list for astro/],
+    [edited((site) => { allowedAdvisory(site).severity = 'High'; }), /has an unknown severity for http-cache-semantics/],
+    [edited((site) => { site.vulnerabilities.astro.severity = 'severe'; }), /has an unknown severity for /],
+    [edited((site) => { site.vulnerabilities.astro.via = ['missing-package']; }), /has an unknown severity for astro/],
+    [edited((site) => { site.vulnerabilities.astro.severity = 'critical'; }), /cannot trace the critical severity of astro to its listed sources/],
+    [edited((site) => { site.metadata.vulnerabilities.high = 6; }), /counts 6 high packages but lists 5/],
+    [edited((site) => { site.metadata.vulnerabilities.critical = 1; }), /counts 1 critical packages but lists 0/],
   ];
   for (const [build, message] of cases) {
-    const failures = auditFailures(build(), allowedAdvisories, lastAllowedDay);
+    const failures = auditFailures(build(), allowlist, lastAllowedDay);
     assert.equal(failures.length, 1, String(message));
     assert.match(failures[0], new RegExp(`^npm audit output ${message.source}`));
+  }
+});
+
+test('the command pins the npm settings that could empty, redirect, or narrow the audit', () => {
+  assert.deepEqual(npmAuditArgs, ['audit', ...requiredFlags]);
+});
+
+test('the command passes before the expiry and fails from it', () => {
+  const before = auditSite({ now: new Date('2026-11-01T23:59:59Z'), allowlist, npmAudit: recorded('site') });
+  assert.equal(before.exitCode, 0, before.output);
+  assert.match(before.output, /^Found high GHSA-ch52-4w7c-c8xp in http-cache-semantics /m);
+  assert.match(
+    before.output,
+    /^Allowed in http-cache-semantics at high, expires 2026-11-02 \(UTC\): GHSA-ch52-4w7c-c8xp\./m,
+  );
+  const after = auditSite({ now: new Date('2026-11-02T00:00:00Z'), allowlist, npmAudit: recorded('site') });
+  assert.equal(after.exitCode, 1);
+  assert.match(after.output, /GHSA-ch52-4w7c-c8xp exception expired on 2026-11-02/);
+});
+
+test('the command checks the current UTC date by default', () => {
+  const at = (days) => utcDate(new Date(Date.now() + days * 86_400_000));
+  const current = [{ ...entry, added: at(-1), expires: at(2) }];
+  const expired = [{ ...entry, added: at(-2), expires: at(0) }];
+  assert.equal(auditSite({ allowlist: current, npmAudit: recorded('site') }).exitCode, 0);
+  assert.equal(auditSite({ allowlist: expired, npmAudit: recorded('site') }).exitCode, 1);
+});
+
+test('the command fails on empty or unparsable npm output', () => {
+  for (const stdout of ['', 'npm ERR! something broke']) {
+    const result = auditSite({ allowlist, npmAudit: () => ({ stdout, stderr: 'npm error' }) });
+    assert.equal(result.exitCode, 1, stdout);
+    assert.match(result.output, /npm audit output is not a version 2 report/);
   }
 });
 
@@ -239,14 +316,8 @@ test('the audit command exits 1 on a blocking advisory, an npm error, or no outp
   }
 });
 
-test('the audit command passes the site report until the exception expires', posixOnly, () => {
-  const result = runAudit('site');
-  if (utcDate(new Date()) < exception.expires) {
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /^Found high GHSA-ch52-4w7c-c8xp in http-cache-semantics /m);
-    assert.match(result.stdout, /^Allowed in http-cache-semantics at high until 2026-11-02: GHSA-ch52-4w7c-c8xp\./m);
-  } else {
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /GHSA-ch52-4w7c-c8xp exception expired on 2026-11-02/);
-  }
+test('the audit command prints its report and exits 0 when nothing blocks', posixOnly, () => {
+  const result = runAudit('offline');
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^No other high or critical advisory\.$/m);
 });

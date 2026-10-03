@@ -2,8 +2,8 @@
 // Each exception names one GHSA advisory, the package it covers, the severity it was reviewed at,
 // why it cannot reach a site visitor, the date it was added, and the first day it no longer
 // applies, at most 30 days later. Dates are UTC calendar dates. An exception that breaks these
-// rules or has expired fails the audit even after the advisory is gone, so it cannot outlive its
-// review.
+// rules or has expired fails the audit even after the advisory is gone, so it stops passing the
+// audit once it expires.
 export const allowedAdvisories = [
   {
     id: 'GHSA-ch52-4w7c-c8xp',
@@ -25,8 +25,8 @@ const rank = (severity) => severities.indexOf(severity);
 
 const ghsaId = /^GHSA(?:-[0-9a-z]{4}){3}$/i;
 
-// The GHSA id that ends an advisory's URL. A URL in any other form, or none, stands in as the id,
-// so it matches no exception.
+// The GHSA id at the end of an advisory's URL, on any host. A URL that doesn't end in /<GHSA id>, or
+// no URL, stands in as the id, so it matches no exception.
 const advisoryId = (advisory) =>
   /\/(GHSA(?:-[0-9a-z]{4}){3})$/i.exec(advisory.url ?? '')?.[1] ??
   advisory.url ??
@@ -71,10 +71,11 @@ const exceptionProblem = (entry, today) => {
 
 // Refuses npm output the audit cannot account for, so a changed or partial report fails instead of
 // passing with nothing found. In a version 2 report a string in `via` names another vulnerable
-// package, and that package's entry carries the advisory.
+// package, and that package's entry carries the advisory. Each package's severity must come from
+// one of its listed sources, an advisory or another listed package, one level deep.
 const reportProblem = (report) => {
   if (report?.auditReportVersion !== 2) return 'is not a version 2 report';
-  if (!(report.metadata?.dependencies?.total > 0)) return 'audited no dependencies';
+  if (!(report.metadata?.dependencies?.total > 0)) return 'lists no dependencies';
   const entries = report.vulnerabilities;
   if (typeof entries !== 'object' || entries === null || Array.isArray(entries)) {
     return 'has no vulnerabilities object';
@@ -86,7 +87,7 @@ const reportProblem = (report) => {
       return `has an unknown severity for ${name} or its advisories`;
     }
     if (!sources.some((severity) => rank(severity) >= rank(entry.severity))) {
-      return `cannot trace the ${entry.severity} severity of ${name} to an advisory`;
+      return `cannot trace the ${entry.severity} severity of ${name} to its listed sources`;
     }
   }
   for (const severity of blockingSeverities) {

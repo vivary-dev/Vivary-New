@@ -40,6 +40,9 @@ def _run(workflow_text=None):
 
 
 RELEASE_BUILD_COMMANDS = _load().release_build_commands()
+SITE_JOB_HEADER = _load().SITE_JOB_HEADER
+SITE_OUTPUT = _load().SITE_OUTPUT
+SITE_DETECT_STEP = _load().SITE_DETECT_STEP
 
 
 def _workflow(site_steps: str, trailing_job: str = "") -> str:
@@ -59,6 +62,7 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "  pull-requests: read\n"
         "jobs:\n"
         "  changes:\n"
+        f"{SITE_OUTPUT}"
         "    steps:\n"
         "      - name: validate dispatched pull request\n"
         "        env:\n"
@@ -71,11 +75,7 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "          LIVE_BASE=$(gh pr view \"$PR_NUMBER\" --json baseRefOid --jq .baseRefOid)\n"
         "          test \"$LIVE_HEAD\" = \"$HEAD_SHA\"\n"
         "          test \"$LIVE_BASE\" = \"$BASE_SHA\"\n"
-        "      - name: detect site inputs\n"
-        "        env:\n"
-        "          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}\n"
-        "          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}\n"
-        "        run: echo detect\n"
+        f"{SITE_DETECT_STEP}\n"
         "\n"
         "  test:\n"
         "    needs: changes\n"
@@ -175,9 +175,7 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'\n"
         "    steps: []\n"
         "\n"
-        "  site:\n"
-        "    needs: changes\n"
-        "    steps:\n"
+        f"{SITE_JOB_HEADER}"
         f"{site_steps}"
         f"{trailing_job}"
     )
@@ -551,8 +549,8 @@ def test_site_audit_step_must_have_no_other_keys():
 
 def test_site_job_must_not_continue_on_error():
     workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
-        "  site:\n    needs: changes\n",
-        "  site:\n    needs: changes\n    continue-on-error: true\n",
+        "    timeout-minutes: 10\n",
+        "    timeout-minutes: 10\n    continue-on-error: true\n",
         1,
     )
     message = _run(workflow)
@@ -569,6 +567,52 @@ def test_site_tests_step_must_run():
         message = _run(_workflow(site_steps))
         assert message, "a site job without its site test step must fail"
         assert "npm run test:site" in message
+
+
+def test_site_job_header_must_stay_pinned():
+    for old, new in (
+        ("    if: needs.changes.outputs.site == 'true'\n", "    if: false\n"),
+        ("    runs-on: ubuntu-latest\n", "    runs-on: self-hosted\n"),
+        ("    needs: changes\n    if: needs.", "    needs: [changes, review]\n    if: needs."),
+        ("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    env:\n      NODE_OPTIONS: --import ./x.mjs\n"),
+        ("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    defaults:\n      run:\n        shell: true {0}\n"),
+        ("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    container: node:22\n"),
+        ("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    services:\n      cache:\n        image: redis\n"),
+    ):
+        workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+        assert workflow.count(old) == 1, old
+        message = _run(workflow.replace(old, new, 1))
+        assert message, f"a changed site job header must fail: {new!r}"
+        assert "site job" in message
+
+
+def test_site_job_must_not_add_keys_after_its_steps():
+    trailing = "    env:\n      NODE_OPTIONS: --import ./x.mjs\n"
+    message = _run(_workflow(INSTALL + AUDIT + SITE_TESTS + trailing))
+    assert message, "a site job key after its steps must fail"
+    assert "no keys beyond" in message
+
+
+def test_site_path_filter_must_stay_pinned():
+    for old, new, expected in (
+        ("'^(site/|docs/|", "'^(site/|", "detect site inputs"),
+        ("        id: scope\n", "        id: other\n", "detect site inputs"),
+        (SITE_OUTPUT, "    outputs:\n      site: false\n", "site output"),
+    ):
+        workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+        assert workflow.count(old) == 1, old
+        message = _run(workflow.replace(old, new, 1))
+        assert message, f"a changed site path filter must fail: {new!r}"
+        assert expected in message
+
+
+def test_workflow_must_not_set_a_top_level_env_block():
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+        "jobs:\n", "env:\n  NODE_OPTIONS: --import ./x.mjs\njobs:\n", 1
+    )
+    message = _run(workflow)
+    assert message, "a top-level env block must fail"
+    assert "top-level env" in message
 
 
 if __name__ == "__main__":
