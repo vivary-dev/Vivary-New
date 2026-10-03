@@ -193,7 +193,8 @@ const i18nStub = `
   export function useT() { return (key, options) => options?.defaultValue ?? key; }
   export function useFormatters() { return { formatDate: value => new Date(value).toISOString() }; }`;
 const dialogStub = `
-  export const Dialog = ({ open, children }) => (open ? <div role="dialog">{children}</div> : null);
+  export const Dialog = ({ open, onOpenChange, children }) => (open ? <div role="dialog">
+    <button type="button" onClick={() => onOpenChange(false)}>Close</button>{children}</div> : null);
   export const DialogContent = ({ children }) => <div>{children}</div>;
   export const DialogHeader = ({ children }) => <div>{children}</div>;
   export const DialogFooter = ({ children }) => <div>{children}</div>;
@@ -343,7 +344,7 @@ const jobsTabStubs = new Map([
 const jobsTabSource = String.raw`
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { QueryClient, QueryClientProvider, environmentManager, timeoutManager } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, environmentManager, focusManager, timeoutManager } from "@tanstack/react-query";
 import { AgentJobsTab } from "@proof/entry";
 
 const settle = () => act(async () => {
@@ -355,12 +356,15 @@ export async function mountJobsTab(rows) {
   globalThis.__proofTransport = (action, params) => {
     const key = params.scope ? action + " " + params.scope : action;
     calls.set(key, (calls.get(key) ?? 0) + 1);
+    if (rows.failing?.includes(key)) throw new Error("The server did not answer.");
     if (action === "list-automations") return rows[params.scope];
     if (action === "list-recurring-jobs") return rows.jobs?.[params.scope] ?? [];
+    if (action === "list-automation-runs") return rows.runs ?? [];
     if (action === "get-scheduled-trigger-status") return { available: true };
     return [];
   };
-  const client = new QueryClient();
+  // Core's house client turns off refetch on window focus, so a hook that wants it must ask for it.
+  const client = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false } } });
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -370,6 +374,23 @@ export async function mountJobsTab(rows) {
   await settle();
   return {
     calls: (action, scope) => calls.get(action + " " + scope) ?? 0,
+    text: () => host.textContent,
+    controls: label => [...host.querySelectorAll("button")].filter(button => button.textContent.trim() === label).length,
+    pastRuns: () => host.querySelector('[role="dialog"]')?.querySelectorAll("li").length ?? 0,
+    async closeDetails() {
+      const close = host.querySelector('[role="dialog"] button');
+      await act(async () => { close.click(); });
+      await settle();
+    },
+    async age(action, params) {
+      await act(async () => {
+        client.setQueryData(["action", action, params], data => data, { updatedAt: Date.now() - 60_000 });
+      });
+    },
+    async focus(focused) {
+      await act(async () => { focusManager.setFocused(focused); });
+      await settle();
+    },
     async openDetails(label = "Details", nth = 0) {
       const details = [...host.querySelectorAll("button")].filter(button => button.textContent.trim() === label)[nth];
       await act(async () => { details.click(); });
@@ -392,6 +413,10 @@ export async function mountJobsTab(rows) {
   };
 }
 
+export function resetFocus() {
+  focusManager.setFocused(undefined);
+}
+
 export function recordTimers() {
   const wasServer = environmentManager.isServer();
   const intervals = new Set();
@@ -410,6 +435,7 @@ export function recordTimers() {
   environmentManager.setIsServer(() => false);
   timeoutManager.setTimeoutProvider(recording);
   return {
+    intervals: () => [...intervals].map(timer => timer.ms),
     async fire(maxMs) {
       const due = [...intervals].filter(timer => timer.ms <= maxMs);
       await act(async () => { for (const timer of due) timer.callback(); });
@@ -510,12 +536,144 @@ test("the automation list refreshes while the Automations tab stays open", async
     assert.ok(tab.calls("list-recurring-jobs", "personal") > fetchedJobs,
       "a timer of 30 seconds or less fetches the personal recurring job list again too");
     assertDetailsShow(tab.details(), afterTick, "an open Details dialog after a timed refresh");
+    assert.deepEqual([...new Set(timers.intervals())], [30_000], "every refresh interval is exactly 30 seconds");
+  } finally {
+    await tab.unmount();
+  }
+  assert.deepEqual(timers.intervals(), [], "no refresh interval outlives the tab");
+});
+
+test("Details stays on the automation it opened when both scopes hold its name", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const personalDigest = { ...beforeTick, id: "res-personal-digest" };
+  const organizationDigest = { ...beforeTick, id: "res-organization-digest", scope: "organization",
+    lastCheck: iso(tick + 120_000) };
+  const rows = { personal: [personalDigest], organization: [organizationDigest] };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    await tab.openDetails("Details", 2);
+    const other = { ...beforeTick, id: "res-other", name: "other" };
+    const organizationAfter = { ...organizationDigest, lastCheck: iso(tick + 180_000) };
+    rows.personal = [other, personalDigest];
+    rows.organization = [organizationAfter];
+    await tab.setList("personal", rows.personal);
+    await tab.setList("organization", rows.organization);
+    const shown = tab.details();
+    assert.equal(shown?.Scope, "Organization", "Details still shows the organization digest");
+    assert.equal(shown?.["Last checked"], organizationAfter.lastCheck,
+      "Details shows the organization digest's LAST CHECKED");
+    assert.ok(tab.calls("list-automation-runs", "organization") > 0, "Past runs asks for the organization scope");
+    assert.equal(tab.calls("list-automation-runs", "personal"), 0, "Past runs never asks for the personal digest");
   } finally {
     await tab.unmount();
   }
 });
 
-test("every Details control fetches the automation list again", async t => {
+test("a closed Details dialog stays closed through the timed refresh", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const tab = await proof.mountJobsTab({ personal: [beforeTick], organization: [] });
+  try {
+    await tab.openDetails();
+    assert.ok(tab.details(), "Details opens");
+    await tab.closeDetails();
+    assert.equal(tab.details(), null, "Close closes Details");
+    await timers.fire(30_000);
+    assert.equal(tab.details(), null, "the timed refresh leaves Details closed");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a failed list refresh keeps the rows and the open Details values", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const rows = { personal: [afterTick], organization: [] };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    await tab.openDetails();
+    rows.personal = [{ ...afterTick, lastCheck: iso(tick + 120_000) }];
+    rows.failing = ["list-automations personal"];
+    const fetched = tab.calls("list-automations", "personal");
+    await timers.fire(30_000);
+    assert.ok(tab.calls("list-automations", "personal") > fetched, "the timed refresh asks for the list again");
+    assert.doesNotMatch(tab.text(), /Could not load all automations/, "a failed refresh after an answer is no load error");
+    assert.equal(tab.controls("Details"), 2, "the automation's row stays listed");
+    assertDetailsShow(tab.details(), afterTick, "an open Details dialog after a failed refresh");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a failed refresh keeps the past runs the owner was reading", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const startedAt = tick + 20_000;
+  const run = { id: "run-1", status: "success", error: null, threadId: "thread-1", runId: "run-1", startedAt,
+    finishedAt: startedAt + 3_000, errorCode: null, automation: "digest" };
+  const rows = { personal: [afterTick], organization: [], runs: [run] };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    await tab.openDetails();
+    assert.equal(tab.pastRuns(), 1, "Past runs lists the run");
+    rows.failing = ["list-automation-runs personal"];
+    const fetched = tab.calls("list-automation-runs", "personal");
+    await timers.fire(30_000);
+    assert.ok(tab.calls("list-automation-runs", "personal") > fetched, "the timed refresh asks for the runs again");
+    assert.equal(tab.pastRuns(), 1, "a failed refresh keeps the run listed");
+    assert.doesNotMatch(tab.text(), /Could not load run history/, "a failed refresh after an answer is no load error");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a return to a hidden window refetches the automation data that went stale", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    proof.resetFocus();
+    timers.restore();
+    restoreDom();
+  });
+  const tab = await proof.mountJobsTab({ personal: [beforeTick], organization: [] });
+  const watched = [["list-automations", { scope: "personal" }], ["list-recurring-jobs", { scope: "personal" }],
+    ["list-automation-runs", { scope: "personal", name: "digest" }]];
+  try {
+    await tab.openDetails();
+    await tab.focus(false);
+    const fetched = watched.map(([action, { scope }]) => tab.calls(action, scope));
+    await timers.fire(30_000);
+    assert.deepEqual(watched.map(([action, { scope }]) => tab.calls(action, scope)), fetched,
+      "the timed refresh skips a hidden window");
+    for (const [action, params] of watched) await tab.age(action, params);
+    await tab.focus(true);
+    watched.forEach(([action, { scope }], index) => {
+      assert.ok(tab.calls(action, scope) > fetched[index], `a return to the window fetches ${action} again`);
+    });
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("every Details control opens Details on its automation", async t => {
   const proof = await jobsTabProof();
   const restoreDom = installDom();
   t.after(restoreDom);
@@ -524,9 +682,12 @@ test("every Details control fetches the automation list again", async t => {
   try {
     for (const [control, label, nth] of [["the Manage menu item", "Details", 0], ["the hidden row button", "Details", 1],
       ["the View details link", "View details", 0]]) {
+      assert.equal(tab.details(), null, `Details is closed before ${control}`);
       const fetched = tab.calls("list-automations", "personal");
       await tab.openDetails(label, nth);
       assert.ok(tab.calls("list-automations", "personal") > fetched, `${control} fetches the automation list again`);
+      assert.equal(tab.details()?.["Last checked"], failed.lastCheck, `${control} opens Details on its automation`);
+      await tab.closeDetails();
     }
   } finally {
     await tab.unmount();
@@ -538,14 +699,22 @@ test("opening Details fetches the list that holds the entry", async t => {
   const restoreDom = installDom();
   t.after(restoreDom);
   const job = { ...beforeTick, id: "res-legacy", name: "legacy", instructions: "Check the build." };
-  const shared = { ...beforeTick, id: "res-shared", name: "shared", scope: "organization" };
-  const tab = await proof.mountJobsTab({ personal: [], organization: [shared], jobs: { personal: [job] } });
+  const organizationJob = { ...job, id: "res-organization-legacy", name: "organization-legacy",
+    scope: "organization", lastCheck: iso(tick + 60_000) };
+  const shared = { ...beforeTick, id: "res-shared", name: "shared", scope: "organization",
+    lastCheck: iso(tick + 120_000) };
+  const tab = await proof.mountJobsTab({ personal: [], organization: [shared],
+    jobs: { personal: [job], organization: [organizationJob] } });
   try {
-    for (const [entry, action, scope, nth] of [["a personal recurring job", "list-recurring-jobs", "personal", 0],
-      ["an organization automation", "list-automations", "organization", 2]]) {
+    for (const [entry, row, action, scope, nth] of [
+      ["a personal recurring job", job, "list-recurring-jobs", "personal", 0],
+      ["an organization recurring job", organizationJob, "list-recurring-jobs", "organization", 2],
+      ["an organization automation", shared, "list-automations", "organization", 4]]) {
       const fetched = tab.calls(action, scope);
       await tab.openDetails("Details", nth);
       assert.ok(tab.calls(action, scope) > fetched, `opening Details on ${entry} fetches ${action} ${scope} again`);
+      assert.equal(tab.details()?.["Last checked"], row.lastCheck, `Details shows ${entry}`);
+      await tab.closeDetails();
     }
   } finally {
     await tab.unmount();
@@ -584,6 +753,9 @@ test("Details closes when its automation leaves the list", async t => {
     rows.personal = [];
     await tab.setList("personal", []);
     assert.equal(tab.details(), null, "Details closes once the list no longer holds its automation");
+    rows.personal = [beforeTick];
+    await tab.setList("personal", [beforeTick]);
+    assert.equal(tab.details(), null, "Details stays closed when the same automation returns to the list");
   } finally {
     await tab.unmount();
   }

@@ -207,8 +207,11 @@ Settings > Agent > Automations holds the controls:
   minute. A check that failed does not count, and a new automation shows none until
   the first check after you create it.
   For an event, webhook, or paused automation, it is the last time a check
-  skipped it, and it stays empty until one does. While the Automations tab is open,
-  **Details** refreshes these values every 30 seconds. Builds without the
+  skipped it, and it stays empty until one does. While the Automations tab is open and
+  the window is visible, **Details** refreshes these values every 30 seconds, and it
+  refreshes them when you return to the window. Past runs stays within 30 seconds of
+  LAST RUN. To do this the tab asks the local server for the four automation lists every
+  30 seconds, and for past runs too while **Details** is open. Builds without the
   [issue #141](https://github.com/vivary-dev/vivary/issues/141) fix show the values
   from when the Automations tab loaded. In those builds, open another Settings tab,
   come back, and open **Details** again to refresh them.
@@ -304,7 +307,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Use its new-tab link and confirm the destination in the Windows dialog. If launch fails, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
 | An automation waits after Vivary was ended during its run | Wait. If Vivary was ended without quitting, for example from Task Manager, the automation that was running waits up to ten minutes, and your other automations run on schedule. When the wait ends, the interrupted run shows that it stopped before it recorded a result, and its schedule resumes. During the wait, **Details** can show its next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/vivary/issues/114) fix end the run at a normal quit. Builds without the [issue #139](https://github.com/vivary-dev/vivary/issues/139) fix make every automation wait. |
-| LAST CHECKED in **Details** looks old | The scheduler checks about once a minute, and **Details** refreshes every 30 seconds, so the value can be about 90 seconds old. Builds without the [issue #141](https://github.com/vivary-dev/vivary/issues/141) fix show the values from when the Automations tab loaded. In those builds, open another Settings tab, come back, and open **Details** again. |
+| LAST CHECKED in **Details** looks old | The scheduler checks about once a minute, and **Details** refreshes every 30 seconds while the window is visible, so the value can be about 90 seconds old. After the window was hidden or minimized, **Details** refreshes when you return to it. Builds without the [issue #141](https://github.com/vivary-dev/vivary/issues/141) fix show the values from when the Automations tab loaded. In those builds, open another Settings tab, come back, and open **Details** again. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
 | Text shows `[redacted NAME]` or `[redacted credential]` | Vivary replaced a credential before the model, the screen, or storage received it. The original is unchanged where it is kept. If an agent needs a key, keep it in the project's own configuration instead of asking the agent to print it. |

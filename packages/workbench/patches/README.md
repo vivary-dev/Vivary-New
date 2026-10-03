@@ -1466,17 +1466,29 @@ The packaged check on the unpublished `9e921ca0` package saw this right after a
 tick. `AgentJobsTab.js` now keeps the key of the open entry, its kind and
 resource id, which is also its row key. Each render looks the key up in the
 current lists, so Details shows what the lists hold now and closes when its
-entry leaves them. A resource id is the primary key of the `resources` table,
+entry leaves them. An effect then clears the key, so the same entry coming
+back does not reopen Details. A resource id is the primary key of the `resources` table,
 so the key is unique across both scopes. Every Details control opens the dialog
 through one function that also refetches the list that holds the entry, so
 Details opens on current values. In `use-jobs.js`, `useRecurringJobs`,
 `useAutomations`, and `useAutomationRuns` refetch every 30 seconds. The
 scheduler heartbeat moves every 60 seconds, so LAST CHECKED in Details trails
-it by at most about 30 seconds. `useAutomationRuns` runs only while Details is
-open, and its refresh keeps Past runs consistent with LAST RUN. React Query
-skips an interval refetch while the page is hidden, and the hooks run only
-while the Automations tab is mounted. The Edit, Run now, and Delete dialogs
-still keep the entry from when they opened.
+it by at most about 30 seconds while the window is visible.
+`useAutomationRuns` runs only while Details is open. The lists and Past runs
+refresh on separate timers, so Past runs stays within 30 seconds of LAST RUN.
+React Query skips an interval refetch while the page is hidden. The three
+hooks set `refetchOnWindowFocus: true`, so a return to the page refetches data
+older than its 5 second stale time. Core's house client turns that option off
+because `useDbSync` refetches on its own, and Vivary does not mount
+`useDbSync`. A failed refresh keeps the last answer. Past runs keeps its list,
+and a section shows "Could not load all automations." only for a list with no
+answer, the rule `useScheduledTriggerState` already follows. The hooks run
+only while the Automations tab is mounted. While the tab is visible it sends
+four list GETs every 30 seconds and a fifth while Details is open, and each
+list GET reads the owner's job rows. A refresh that lands while a pause,
+resume, or delete is saving can show the old value until that change's own
+refetch, one round trip later. The Edit, Run now, and Delete dialogs still
+keep the entry from when they opened.
 
 The Details dialog showed Open thread on a run with an error and a thread. The
 control sent Core's `agent-chat:open-thread` window event, which only Core's
@@ -1512,18 +1524,27 @@ after the heartbeat keep their stored value, and a resumed automation shows
 the heartbeat. The first two failed on the patch before this round's fix. The
 other fixtures are backdated an hour, so they predate the heartbeat.
 
-Issue #141 added seven cases to that file. They bundle Core's real
+Issue #141 added twelve cases to that file. They bundle Core's real
 `AgentJobsTab.js`, `AutomationDetailsDialog.js`, and `use-jobs.js`, run the
 hooks on React Query with a fake transport, and render the tab under linkedom.
 An open Details dialog follows new list data. Opening Details fetches its list
-again. A timer of 30 seconds or less fetches both personal lists again. Each of
-the three Details controls, the Manage menu item, the hidden row button, and
-the View details link, fetches the list again. Opening Details on a personal
-recurring job fetches the recurring job list, and on an organization
-automation the organization automation list. The 30 second timer fetches the
-open automation's past runs again. Details closes when its automation leaves
-the list. The first three failed on the patch before the fix. Each rule of the
-fix, reverted alone in the installed Core, fails one of the seven.
+again. A 30 second timer fetches both personal lists again, every recorded
+interval is exactly 30 seconds, and none outlives the tab. Each of the three
+Details controls, the Manage menu item, the hidden row button, and the View
+details link, opens Details from closed on its automation and fetches the list
+again. Opening Details on a personal recurring job, an organization recurring
+job, and an organization automation fetches the list that holds each and shows
+that entry. The 30 second timer fetches the open automation's past runs again.
+Details closes when its automation leaves the list and stays closed when it
+returns. A personal and an organization automation with one name keep Details
+on the organization one while another entry moves ahead of it. Details closed
+with Close stays closed through the timer. A failed list refresh shows no load
+error and keeps the row and the Details values, and a failed runs refresh keeps
+the runs listed. A hidden window skips the timer, and a return refetches each
+list and the runs once they are stale. The first three failed on the patch
+before the fix. The review round's mutation table lists 27 mutations, each a
+rule of the fix reverted or broken alone in the installed Core, and each fails
+a named case.
 
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
@@ -1533,7 +1554,7 @@ the same test. Remove the Open thread part only when Vivary can open a run
 thread, by giving it a scope or a route that loads it, and the test expects
 the control. Upstream could take the #141 change as it is. Remove it when an
 upstream release keeps Details on the current list entry, refreshes the lists
-while the tab is open, and passes the seven #141 cases.
+while the tab is open, and passes the twelve #141 cases.
 
 ## Automation runs at quit
 
