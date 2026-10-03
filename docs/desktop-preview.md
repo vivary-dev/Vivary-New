@@ -284,7 +284,7 @@ in 310 ms, with all observed application processes gone within 583 ms and 559 ms
 Its idle close took 4.2 seconds. These are measured runs, not a fixed close-time
 guarantee. The 15-second fallback remains configured. Windows desktop shutdown
 keeps the server alive until successful cleanup or that parent fallback. If the
-desktop process disconnects, the server gives cleanup 15 seconds before attempting
+desktop process disconnects, the detached server gives cleanup 15 seconds before attempting
 to stop its own process tree. Fresh Windows acceptance of that parent-loss
 correction remains pending in the
 [acceptance receipt](product/multi-project/receipts/138-desktop-quit-exit.md).
