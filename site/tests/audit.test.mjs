@@ -15,6 +15,10 @@ const fixturePath = (name) => fileURLToPath(new URL(`fixtures/audit/${name}.json
 const report = (name) => JSON.parse(readFileSync(fixturePath(name), 'utf8'));
 const lastAllowedDay = '2026-11-01';
 
+// Audits the site report with the allowed entry changed as given.
+const withEntry = (change, today) =>
+  auditFailures(report('site'), [{ ...allowedAdvisories[0], ...change }], today);
+
 // Runs the audit command with an `npm` stub first on PATH that prints a fixture, or nothing.
 const runAudit = (fixture) => {
   const bin = mkdtempSync(path.join(tmpdir(), 'site-audit-npm-'));
@@ -39,10 +43,10 @@ test('the allowed advisory alone passes', () => {
 
 test('another high advisory fails', () => {
   const failures = auditFailures(report('other-high'), allowedAdvisories, lastAllowedDay);
-  assert.deepEqual(
-    failures.map((line) => line.split(' ').slice(0, 4).join(' ')).sort(),
-    ['high GHSA-grv7-fg5c-xmjg in braces', 'high GHSA-vfj7-8cjw-p6xm in braces'],
-  );
+  assert.deepEqual(failures.sort(), [
+    'high GHSA-grv7-fg5c-xmjg in braces <3.0.3: Uncontrolled resource consumption in braces',
+    'high GHSA-vfj7-8cjw-p6xm in braces <=3.0.3: braces vulnerable to stack-exhaustion denial of service through deeply nested patterns',
+  ]);
 });
 
 test('a critical advisory fails', () => {
@@ -56,6 +60,17 @@ test('a critical advisory fails', () => {
   assert.match(failures[0], /^critical GHSA-2222-3333-4444 in http-cache-semantics /);
 });
 
+test('the allowed advisory fails once its severity rises past the reviewed one', () => {
+  const site = report('site');
+  site.vulnerabilities['http-cache-semantics'].via[0].severity = 'critical';
+  const failures = auditFailures(site, allowedAdvisories, lastAllowedDay);
+  assert.equal(failures.length, 1);
+  assert.match(
+    failures[0],
+    /^critical GHSA-ch52-4w7c-c8xp in http-cache-semantics .*\(severity rose past the reviewed high\)$/,
+  );
+});
+
 test('an expired exception fails, even after its advisory is gone', () => {
   const failures = auditFailures(report('site'), allowedAdvisories, '2026-11-02');
   assert.match(failures[0], /^GHSA-ch52-4w7c-c8xp exception expired on 2026-11-02\./);
@@ -63,10 +78,50 @@ test('an expired exception fails, even after its advisory is gone', () => {
   assert.deepEqual(auditFailures(clean, allowedAdvisories, '2026-11-02'), [failures[0]]);
 });
 
-test('an expiry date in another form fails', () => {
-  const misdated = [{ ...allowedAdvisories[0], expires: '2026-11-2' }];
-  const failures = auditFailures(report('site'), misdated, '2026-11-15');
-  assert.match(failures[0], /^GHSA-ch52-4w7c-c8xp exception needs an expiry date in YYYY-MM-DD form/);
+test('an exception added in the future fails', () => {
+  assert.deepEqual(auditFailures(report('site'), allowedAdvisories, '2026-10-03'), []);
+  assert.match(
+    auditFailures(report('site'), allowedAdvisories, '2026-10-02')[0],
+    /^GHSA-ch52-4w7c-c8xp exception was added on 2026-10-03, which is in the future\./,
+  );
+  assert.match(
+    withEntry({ added: '2026-10-11' }, '2026-10-10')[0],
+    /^GHSA-ch52-4w7c-c8xp exception was added on 2026-10-11, which is in the future\./,
+  );
+});
+
+test('an exception that expires more than 30 days after it was added fails', () => {
+  assert.deepEqual(withEntry({ added: '2026-10-03', expires: '2026-11-02' }, '2026-10-10'), []);
+  assert.match(
+    withEntry({ added: '2026-10-02' }, '2026-10-10')[0],
+    /^GHSA-ch52-4w7c-c8xp exception expires 31 days after it was added, more than 30\./,
+  );
+});
+
+test('exception dates outside YYYY-MM-DD form fail', () => {
+  for (const change of [
+    { expires: '2026-11-2' },
+    { expires: '2026-11' },
+    { added: '2026/10/03' },
+    { added: '2026-02-30' },
+    { expires: undefined },
+  ]) {
+    assert.match(
+      withEntry(change, '2026-10-10')[0],
+      /^GHSA-ch52-4w7c-c8xp exception needs added and expiry dates in YYYY-MM-DD form/,
+      JSON.stringify(change),
+    );
+  }
+});
+
+test('an exception without a reviewed high or critical severity fails', () => {
+  for (const severity of [undefined, 'moderate']) {
+    assert.match(
+      withEntry({ severity }, '2026-10-10')[0],
+      /^GHSA-ch52-4w7c-c8xp exception needs the severity it was reviewed at/,
+      String(severity),
+    );
+  }
 });
 
 test('a moderate advisory passes', () => {

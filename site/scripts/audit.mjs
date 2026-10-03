@@ -25,8 +25,8 @@ if (failures.length) {
   process.exitCode = 1;
 } else {
   for (const { summary } of reportedAdvisories(report)) console.log(`Found ${summary}`);
-  for (const { id, expires, reason } of allowedAdvisories) {
-    console.log(`Allowed until ${expires}: ${id}. ${reason}`);
+  for (const { id, severity, expires, reason } of allowedAdvisories) {
+    console.log(`Allowed at ${severity} until ${expires}: ${id}. ${reason}`);
   }
   console.log('No other high or critical advisory.');
 }

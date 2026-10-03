@@ -174,9 +174,12 @@ the lockfile. When that happens, a maintainer:
 
 When no patched release exists and the advisory cannot reach a site visitor, a reviewed
 PR may add an exception to `allowedAdvisories` in `site/scripts/audit-policy.mjs`.
-Each entry names the GHSA id, the reason in one sentence, and an expiry date 30 days
-after its review. On its expiry date the entry stops covering the advisory and fails
-the audit by itself, so someone must remove it or review it again and set a new date.
+Each entry names the GHSA id, the severity it was reviewed at, the reason in one
+sentence, the date it was added, and an expiry date at most 30 days later. The audit
+fails when an entry's added date is in the future, when its expiry falls more than 30
+days after that date, or when the advisory's severity rises past the reviewed one. On
+its expiry date the entry stops covering the advisory and fails the audit by itself, so
+someone must remove it or review it again and set new dates.
 The site behavior tests run `site/tests/audit.test.mjs` against recorded
 `npm audit --json` output.
 
