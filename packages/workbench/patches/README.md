@@ -11,6 +11,26 @@ Core package. Issue #9 also applies `@agent-native__toolkit@0.19.3.patch` to the
 pinned Toolkit package. The lockfile records both patch hashes. Install with
 `pnpm install --frozen-lockfile` from `packages/workbench`.
 
+## Email BCC delivery
+
+Issue [#112](https://github.com/vivary-dev/vivary/issues/112) fixes an email action
+that claimed a blind copy was sent after dropping its address. The action now
+passes its trimmed, nonempty `bcc` to `sendEmail`. `SendEmailArgs` accepts one
+address or an address list. Resend receives `bcc` as an address array. SendGrid
+receives `personalizations[0].bcc` as an array of `{ email }` objects. BCC does not
+enter the visible To, Cc, headers or message content. Empty action input omits BCC.
+
+A provider error remains an action error. Without a provider, a BCC request fails
+even in development, where the existing no-BCC logging fallback stays available.
+Provider selection, credentials and the unattended automation tool allowlist are
+unchanged. The fake HTTP transport tests exercise the installed action, Markdown
+renderer and email transport together. They send no email.
+
+Run `pnpm --dir packages/workbench test:email`. The maintained CI suite includes
+this command. Remove the three email patch hunks when a pinned upstream Core
+version preserves BCC in both transports, refuses unsupported delivery honestly,
+and passes these tests without the patch.
+
 ## Raw SQL inspection
 
 The maintained Core patch gives the raw database tools one SQL tokenizer.

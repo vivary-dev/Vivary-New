@@ -10702,6 +10702,63 @@ index d042408be0c8a183093b9ddaa53e6372d08528db..e24674272f8f0c34ca31b7f52e0bc592
              ...(typeof opts.status === "number" && { status: opts.status }),
              ...(opts.code && { code: opts.code }),
              strikes,
+diff --git a/dist/server/email-actions.js b/dist/server/email-actions.js
+index f4067aa7a78d3df1fb5f980e394ee79cc99e66ff..7e6f1ac7d5958f6f910444cfd0da247f3b025e4d 100644
+--- a/dist/server/email-actions.js
++++ b/dist/server/email-actions.js
+@@ -106,6 +106,7 @@ export function createCoreEmailActionEntries(options) {
+                         text: markdownToText(bodyMd),
+                         ...(from ? { from } : {}),
+                         ...(cc ? { cc } : {}),
++                        ...(bcc ? { bcc } : {}),
+                         ...(replyTo ? { replyTo } : {}),
+                     });
+                     const bccNote = bcc ? ` (bcc: ${bcc})` : "";
+diff --git a/dist/server/email.d.ts b/dist/server/email.d.ts
+index 23c94bcc1695c123e28c0cc84324cda5bd1e6197..cbfd6a80876f1c4b546aa91e1981441ac224d50c 100644
+--- a/dist/server/email.d.ts
++++ b/dist/server/email.d.ts
+@@ -45,6 +45,7 @@ export interface SendEmailArgs {
+      */
+     fromName?: string;
+     cc?: string | string[];
++    bcc?: string | string[];
+     replyTo?: string;
+     /**
+      * Per-app branding for first-party agent-native.com deployments. Applied
+diff --git a/dist/server/email.js b/dist/server/email.js
+index 867c85795bf5cb5a176c21b86aa4ab1468087179..be6eedebbe316bae6f73cb966f4621cbd00fe3b5 100644
+--- a/dist/server/email.js
++++ b/dist/server/email.js
+@@ -199,6 +199,8 @@ async function deliverEmail(args, signal) {
+         };
+         if (args.cc)
+             payload.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
++        if (args.bcc)
++            payload.bcc = Array.isArray(args.bcc) ? args.bcc : [args.bcc];
+         if (replyTo)
+             payload.reply_to = replyTo;
+         if (attachments?.length) {
+@@ -241,6 +243,10 @@ async function deliverEmail(args, signal) {
+             const ccList = Array.isArray(args.cc) ? args.cc : [args.cc];
+             personalization.cc = ccList.map((email) => ({ email }));
+         }
++        if (args.bcc) {
++            const bccList = Array.isArray(args.bcc) ? args.bcc : [args.bcc];
++            personalization.bcc = bccList.map((email) => ({ email }));
++        }
+         const sgPayload = {
+             personalizations: [personalization],
+             from: parseSendGridFrom(from),
+@@ -306,7 +312,7 @@ async function deliverEmail(args, signal) {
+     // Dev fallback — no provider configured. Logging the full body exposes
+     // reset tokens, so only do it outside production. In production, refuse
+     // to send rather than silently leaking secrets to logs.
+-    if (process.env.NODE_ENV === "production") {
++    if (process.env.NODE_ENV === "production" || args.bcc) {
+         throw new Error("No email provider configured. Save RESEND_API_KEY or SENDGRID_API_KEY in settings.");
+     }
+     console.log(`\n[agent-native:email] No email provider configured. ` +
 diff --git a/dist/server/framework-request-handler.js b/dist/server/framework-request-handler.js
 index 6357b20cfb2f61aed2b7d255f6c053d9c9b4c771..85cb8b756e69b1ae421da87183a4a6f508f95f2d 100644
 --- a/dist/server/framework-request-handler.js
