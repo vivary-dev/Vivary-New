@@ -29,6 +29,16 @@ to the same Vivary instance. That instance can run on your computer or a suitabl
 server. Your agents, credentials, files, and history stay on the host.
 </p>
 
+<p align="center">
+  <img src="docs/assets/vivary-mascot.png" alt="Vivary's charcoal woodland agent character, with branch-shaped horns, an olive leaf, and a small notebook." width="240" height="192">
+</p>
+
+The woodland character is the visual identity of Vivary's main project agent.
+It appears in the new-conversation introduction. The selected runtime still
+owns the agent's tools, permissions, and execution. The character's public name
+is still open. [Character and brand guidance](https://github.com/vivary-dev/vivary-site/blob/dev/docs/brand/system/README.md)
+owns its appearance, voice, and asset versions.
+
 ## The experience we are building
 
 - Open a project and work with an agent that can read files, edit them, and run tools.
