@@ -208,8 +208,8 @@ Settings > Agent > Automations holds the controls:
 - The switch on an automation pauses or resumes it.
 - **Manage** > **Details** shows its settings and past runs. For a scheduled automation,
   LAST CHECKED is the last time the scheduler checked your automations, about once a
-  minute, and not while a scheduled run is in progress. A check that failed does not
-  count, and a new automation shows none until the first check after you create it.
+  minute. A check that failed does not count, and a new automation shows none until
+  the first check after you create it.
   For an event, webhook, or paused automation, it is the last time a check
   skipped it, and it stays empty until one does. **Details** shows the values from when
   the Automations tab loaded. To refresh them, open another Settings tab, come back, and
@@ -283,9 +283,9 @@ browser tab open.
 Quitting Vivary during a run ends the run, and **Details** shows it as interrupted.
 Vivary takes about 15 seconds to close. The next launch checks schedules about 70
 seconds after it starts. If Vivary was ended without quitting, for example from Task
-Manager, the run shows as running, and scheduled automations wait up to 10 minutes
-after the next launch. During that wait, **Details** can show a next run about a minute
-away, but nothing runs until the wait ends.
+Manager, the run shows as running, and that automation waits up to 10 minutes after the
+next launch while your other automations run on schedule. During that wait, **Details**
+can show its next run about a minute away, but it does not run until the wait ends.
 
 Schedules are cron expressions read in each automation's saved time zone. Vivary checks
 once a minute, so the shortest interval is one minute, and a run can start up to a minute
@@ -305,7 +305,7 @@ lasts longer than its interval delays the next one, and runs of one automation n
 | Runtime is unavailable | Check that the supported coding runtime is installed and authenticated separately, then inspect Runtime settings. |
 | Embedded preview is blank | Confirm the page server is running and the address uses HTTP or HTTPS. Use its new-tab link and confirm the destination in the Windows dialog. If launch fails, copy the address into your browser. |
 | Setup content extends beyond the panel | Scroll horizontally, widen the panel, or maximize it. |
-| Automations wait after Vivary was ended during a run | Wait. If Vivary was ended without quitting, for example from Task Manager, the earlier session holds the scheduler lease for up to ten minutes. When it expires, the interrupted run shows that it stopped before it recorded a result, and the schedule resumes. During the wait, **Details** can show a next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/vivary/issues/114) fix release the lease at a normal quit. |
+| An automation waits after Vivary was ended during its run | Wait. If Vivary was ended without quitting, for example from Task Manager, the automation that was running waits up to ten minutes, and your other automations run on schedule. When the wait ends, the interrupted run shows that it stopped before it recorded a result, and its schedule resumes. During the wait, **Details** can show its next run about a minute away. Builds with the [issue #114](https://github.com/vivary-dev/vivary/issues/114) fix end the run at a normal quit. Builds without the [issue #139](https://github.com/vivary-dev/vivary/issues/139) fix make every automation wait. |
 | LAST CHECKED in **Details** looks old | **Details** shows the values from when the Automations tab loaded. Open another Settings tab, come back, and open **Details** again. |
 | A failed automation run is not retried | Vivary does not retry runs. Fix the cause, then wait for the next scheduled run or choose **Run now**. |
 | A run fails with "This automation lists MCP tools" | Automation runs cannot call MCP tools. In a Personal workspace Native chat, ask the agent to remove the MCP tools from the automation. |
