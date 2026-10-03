@@ -48,13 +48,29 @@ Native Windows [job 111130614007](https://github.com/vivary-dev/vivary/actions/r
 
 The same clean source passed the selected Zo guards, workbench and maintained waves. The site wave failed only its dependency audit. The GitHub run had eight successful jobs and a failed site job. The separate [PR #176](https://github.com/vivary-dev/vivary/pull/176) proposes a temporary GHSA exception, not a dependency fix. Its separate owner approval is not supplied by this work. No audit waiver was applied here.
 
+
+## Launch-boundary design decision
+
+Test-first commit `2d3a251b` added a native regression through the actual preview service and real pnpm launcher. Its [first Windows job](https://github.com/vivary-dev/vivary/actions/runs/37105543687/job/111153227260) failed during setup. Node's bundled Corepack shim tried to fetch pnpm while preview networking was disabled. No readiness, ancestry or cleanup assertion was reached. That failure is preserved separately.
+
+Test-only correction `3a349b66` locates the existing global pnpm installation, verifies its version against the CI pin, and scopes the real resolver to that directory. It adds no installation or network access. In [Windows job 111156476327](https://github.com/vivary-dev/vivary/actions/runs/37106673797/job/111156476327), the HTTP preview became ready and all five live process identities and ancestry edges passed. The test then killed only the service process. It failed at the intended five-second assertion that server death must clean the complete pnpm/cmd/preview/ordinary-child chain. The preview and ordinary child survived. The diagnostic and assertion preceded manual cleanup, which checked the command shell and every other recorded process. All 13 earlier lifecycle cases passed. The combined suite recorded 25 passes, one expected regression failure and one unrelated skip.
+
+Independent review found no launch-option correction that preserves arbitrary supported npm, pnpm and Bun scripts. The launcher already uses `shell: false` and a non-detached Windows child. Another cmd wrapper moves the uncontained hop. Direct script execution or a substitute shell changes package-manager or command semantics.
+
+| Containment option | Required change |
+| --- | --- |
+| Reuse [Core's Windows process scope](../../../../packages/core/vivary_core/workspace_observe.py) | Extract its suspended launch and kill-on-close job into a supported preview adapter. A persistent Python owner must retain the job handle and bridge output, exit and Stop. |
+| Own the job directly from Node | Add a native binding or helper for suspended creation, job assignment and resume. This adds another native integration to package and maintain. |
+
+**Recommended owner decision:** authorize a separate bounded design and implementation using the existing Core containment mechanism. Its private bounded-command API is not a preview API. The owner must approve the persistent process owner, streaming lifecycle and packaging contract first. No job owner, supervisor, native dependency or runtime change was introduced in this wave. The original failed-cleanup fallback and parent-loss behavior remain unchanged. PR #173 stays blocked.
+
 ## Remaining work and handoff
 
 The bounded wave ends at a reproduced source defect. Normal quit with an active real preview and active-preview cleanup after abrupt Electron loss were not run. The new P1 remains open. A clean earlier observation of idle parent loss cleared all seven package processes in 384.85 ms, but it does not establish either active-preview journey.
 
-The next owner must choose and review a source fix for server-first preview cleanup, add the failing regression before that fix, and repeat the failed case with both preview processes gone while Electron remains observable. Preserve the original PID identities and record the outcome before any manual cleanup. Then rebuild the exact candidate and complete active-preview normal quit and parent-loss checks, along with normal automation persistence, final CI and review. The existing registered test root is usable. A native chooser is not the blocker. Its earlier POST-to-405 helper error was corrected to the supported GET route.
+The next owner must approve and review the containment design, use the committed failing regression before its source fix, and repeat the failed case with both preview processes gone while Electron remains observable. Preserve the original PID identities and record the outcome before any manual cleanup. Then rebuild the exact candidate and complete active-preview normal quit and parent-loss checks, along with normal automation persistence, final CI and review. The existing registered test root is usable. A native chooser is not the blocker. Its earlier POST-to-405 helper error was corrected to the supported GET route.
 
-All test processes and the external observer were closed. Private receipts, logs, script versions and checksums retain the observations. The controller owns the next source-fix and merge decision and the final supported local Entire capture refresh. The existing checkpoint recorded at 03:29 UTC does not cover this later validation. No merge, release, deployment or branch deletion occurred.
+All test processes and the external observer were closed. Private receipts, logs, script versions and checksums retain the observations. The controller owns the next source-fix and merge decision and the final supported local Entire capture refresh. The controller refreshed supported local capture through the 06:50 UTC pause. This later design wave needs its own final capture refresh. No merge, release, deployment or branch deletion occurred.
 
 ## Historical 5ce5468c acceptance
 
