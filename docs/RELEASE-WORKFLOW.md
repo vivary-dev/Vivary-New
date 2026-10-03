@@ -159,9 +159,10 @@ The script runs `npm audit --json` with `--offline=false`,
 `--include=peer`. Each flag outranks the same setting from any `.npmrc` file,
 `npm_config_*` variable, or `NODE_ENV=production`, so none of those can empty the
 report, send the advisory request to another registry, or drop a dependency type from
-it. Other settings in an `.npmrc` file, such as a proxy, stay with review. HIGH and
-CRITICAL advisories block the job unless a current exception covers them.
-Lower-severity findings don't block, and a passing run lists them, so they stay
+it. The script refuses to run when `site/.npmrc` exists, because the flags don't cover
+every setting a project `.npmrc` file can hold, such as a proxy or a certificate
+authority. HIGH and CRITICAL advisories block the job unless a current exception covers
+them. Lower-severity findings don't block, and a passing run lists them, so they stay
 visible without turning every advisory-database change into a release blocker. This is
 the selected threshold for [#232](https://github.com/vivary-dev/vivary-cli/issues/232).
 It catches release-threatening dependency defects while limiting unrelated CI churn.
@@ -215,13 +216,24 @@ tests that stub `npm` are skipped.
 
 Do not add `continue-on-error`, skip the audit, weaken the threshold, add an exception
 outside the review above, or use a forced dependency rewrite to make an unrelated PR
-green. `CHANGELOG.md` records the historical red/green control. The CI workflow
-contract and its tests prevent the command, working directory, job boundary, or
-install-before-audit ordering from drifting. They also pin the site job's header and
-keys, the `changed paths` job's site filter and output, the audit step, and the
-`npm run test:site` step. They refuse `continue-on-error` in the site job and a
-top-level `env:` block. A top-level `defaults:` block or a step that writes
-`$GITHUB_ENV`, `$GITHUB_PATH`, or an `.npmrc` file before the audit stays with review.
+green. `CHANGELOG.md` records the historical red/green control.
+
+The CI workflow contract, `scripts/check_ci_workflow.py`, parses `ci.yml` with PyYAML
+6.0.3, which the `tests + checks` job installs in the step right before the contract.
+It refuses a mapping that repeats a key. The workflow's top-level keys must be exactly
+`name`, `on`, `permissions`, and `jobs`, so a top-level `env:` or `defaults:` block
+fails in any spelling or position. The `changed paths` job and the site job must equal
+their pinned values exactly: every key, every value, and every step in order. A comment
+line, a quoted key, or an added step changes the parsed value and fails the contract.
+A Dependabot bump of an action in either job needs the same change in the contract.
+The contract's text checks still cover the other jobs.
+
+Two routes stay with review. Code that runs inside `npm ci` before the audit, a
+lifecycle script in `site/package.json` or a dependency's install script, can change
+what the audit sees. A change that stops the contract itself from running, such as a
+shell override that turns every step into a no-op, can't be refused by the contract,
+because the contract doesn't run. The contract also compares what PyYAML reads, and
+GitHub's parser can differ from PyYAML on rare YAML features.
 
 No branch protection or ruleset on `dev` or `main` requires a pull request, a review,
 or a passing check today. `dev` accepts direct pushes, and a red site job doesn't block

@@ -1,6 +1,7 @@
 """Behavior tests for the repository CI workflow contract guard."""
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -40,12 +41,12 @@ def _run(workflow_text=None):
 
 
 RELEASE_BUILD_COMMANDS = _load().release_build_commands()
-SITE_JOB_HEADER = _load().SITE_JOB_HEADER
-SITE_OUTPUT = _load().SITE_OUTPUT
-SITE_DETECT_STEP = _load().SITE_DETECT_STEP
+REAL_TEXT = REAL_WORKFLOW.read_text(encoding="utf-8")
+CHANGES_JOB_TEXT = _load().job_block(REAL_TEXT, "changes")
+SITE_JOB_TEXT = _load().job_block(REAL_TEXT, "site")
 
 
-def _workflow(site_steps: str, trailing_job: str = "") -> str:
+def _workflow(site_job: str = SITE_JOB_TEXT, trailing_job: str = "") -> str:
     return (
         "name: ci\n"
         "on:\n"
@@ -61,22 +62,7 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "  contents: read\n"
         "  pull-requests: read\n"
         "jobs:\n"
-        "  changes:\n"
-        f"{SITE_OUTPUT}"
-        "    steps:\n"
-        "      - name: validate dispatched pull request\n"
-        "        env:\n"
-        "          HEAD_SHA: ${{ inputs.head_sha }}\n"
-        "          BASE_SHA: ${{ inputs.base_sha }}\n"
-        "          PR_NUMBER: ${{ inputs.pull_request_number }}\n"
-        "        run: |\n"
-        "          test \"$GITHUB_SHA\" = \"$HEAD_SHA\"\n"
-        "          LIVE_HEAD=$(gh pr view \"$PR_NUMBER\" --json headRefOid --jq .headRefOid)\n"
-        "          LIVE_BASE=$(gh pr view \"$PR_NUMBER\" --json baseRefOid --jq .baseRefOid)\n"
-        "          test \"$LIVE_HEAD\" = \"$HEAD_SHA\"\n"
-        "          test \"$LIVE_BASE\" = \"$BASE_SHA\"\n"
-        f"{SITE_DETECT_STEP}\n"
-        "\n"
+        f"{CHANGES_JOB_TEXT}"
         "  test:\n"
         "    needs: changes\n"
         "    if: ${{ always() }}\n"
@@ -93,6 +79,8 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "          python scripts/check_hldd.py --base \"$BASE_SHA\" --head \"$HEAD_SHA\"\n"
         "      - name: install Python test runner\n"
         "        run: python -m pip install pytest packaging\n"
+        "      - name: install CI workflow parser\n"
+        "        run: python -m pip install pyyaml==6.0.3\n"
         "      - name: CI workflow contract\n"
         "        run: python scripts/check_ci_workflow.py\n"
         "      - name: CI workflow contract tests\n"
@@ -175,23 +163,22 @@ def _workflow(site_steps: str, trailing_job: str = "") -> str:
         "    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'\n"
         "    steps: []\n"
         "\n"
-        f"{SITE_JOB_HEADER}"
-        f"{site_steps}"
+        f"{site_job}"
         f"{trailing_job}"
     )
 
 
-INSTALL = (
+INSTALL_STEP = (
     "      - name: install\n"
     "        run: npm ci\n"
     "        working-directory: site\n"
 )
-AUDIT = (
+AUDIT_STEP = (
     "      - name: audit high and critical site dependencies\n"
     "        run: node scripts/audit.mjs\n"
     "        working-directory: site\n"
 )
-SITE_TESTS = (
+SITE_TESTS_STEP = (
     "      - name: site behavior and information architecture tests\n"
     "        run: npm run test:site\n"
     "        working-directory: site\n"
@@ -231,7 +218,7 @@ def test_real_workflow_passes_and_is_not_modified():
 
 
 def test_ci_contract_regression_suite_must_run():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         CONTRACT_TEST_COMMAND,
         "echo contract tests skipped",
     )
@@ -241,7 +228,7 @@ def test_ci_contract_regression_suite_must_run():
 
 
 def test_source_navigation_contract_must_run():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         SOURCE_NAVIGATION_CHECK_COMMAND,
         "echo source navigation check skipped",
         1,
@@ -252,7 +239,7 @@ def test_source_navigation_contract_must_run():
 
 
 def test_source_navigation_regressions_must_run():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         SOURCE_NAVIGATION_TEST_COMMAND,
         "echo source navigation tests skipped",
         1,
@@ -270,7 +257,7 @@ def _without_governed_command(workflow: str, command: str) -> str:
 
 def test_windows_governed_job_must_run_source_navigation_contract():
     workflow = _without_governed_command(
-        _workflow(INSTALL + AUDIT + SITE_TESTS),
+        _workflow(),
         SOURCE_NAVIGATION_CHECK_COMMAND,
     )
     message = _run(workflow)
@@ -280,7 +267,7 @@ def test_windows_governed_job_must_run_source_navigation_contract():
 
 def test_windows_governed_job_must_run_source_navigation_regressions():
     workflow = _without_governed_command(
-        _workflow(INSTALL + AUDIT + SITE_TESTS),
+        _workflow(),
         SOURCE_NAVIGATION_TEST_COMMAND,
     )
     message = _run(workflow)
@@ -290,14 +277,14 @@ def test_windows_governed_job_must_run_source_navigation_regressions():
 
 def test_repository_automation_guard_and_regressions_must_run():
     for command in (AUTOMATION_GUARD_COMMAND, AUTOMATION_TEST_COMMAND):
-        workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(command, "echo skipped")
+        workflow = _workflow().replace(command, "echo skipped")
         message = _run(workflow)
         assert message, f"CI must execute {command}"
         assert command in message
 
 
 def test_repository_automation_behavior_tests_must_run():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         AUTOMATION_BEHAVIOR_COMMAND,
         "echo behavior tests skipped",
     )
@@ -307,7 +294,7 @@ def test_repository_automation_behavior_tests_must_run():
 
 
 def test_release_artifact_contract_and_real_archives_must_run():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+    workflow = _workflow()
     for command in (
         "python -m pip install uv==0.11.21",
         ARTIFACT_TEST_COMMAND,
@@ -321,7 +308,7 @@ def test_release_artifact_contract_and_real_archives_must_run():
 
 
 def test_installed_route_parity_proofs_must_run():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+    workflow = _workflow()
     for command in (
         PARITY_TEST_COMMAND,
         PARITY_CHECK_COMMAND,
@@ -333,7 +320,7 @@ def test_installed_route_parity_proofs_must_run():
 
 
 def test_installed_command_surface_must_follow_route_parity():
-    reordered = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    reordered = _workflow().replace(
         "      - name: packaged front door smoke\n"
         f"        run: {PARITY_CHECK_COMMAND}\n"
         "      - name: installed command surface\n"
@@ -350,7 +337,7 @@ def test_installed_command_surface_must_follow_route_parity():
 
 
 def test_windows_governed_job_must_prove_installed_route_parity():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+    workflow = _workflow()
     for command in (
         WINDOWS_PARITY_CHECK_COMMAND,
         WINDOWS_PARITY_CHARACTERIZE_COMMAND,
@@ -361,7 +348,7 @@ def test_windows_governed_job_must_prove_installed_route_parity():
 
 
 def test_windows_command_surface_must_follow_route_parity():
-    reordered = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    reordered = _workflow().replace(
         f"          {WINDOWS_PARITY_CHECK_COMMAND}\n"
         "          if ($LASTEXITCODE -ne 0) { throw \"installed route parity failed\" }\n"
         f"          {WINDOWS_PARITY_CHARACTERIZE_COMMAND}\n",
@@ -376,45 +363,46 @@ def test_windows_command_surface_must_follow_route_parity():
 
 
 def test_wheelhouse_smoke_must_pin_the_installed_strato_version():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(STRATO_PIN, "assert True", 1)
+    workflow = _workflow().replace(STRATO_PIN, "assert True", 1)
     message = _run(workflow)
     assert message, "the wheelhouse smoke must pin every routed component version"
     assert "vivary-strato" in message
 
 
+def _site_job_with(old: str, new: str) -> str:
+    """Return the real site job with one exact edit."""
+    assert SITE_JOB_TEXT.count(old) == 1, old
+    return SITE_JOB_TEXT.replace(old, new, 1)
+
+
 def test_missing_site_audit_gate_fails():
-    message = _run(_workflow(INSTALL))
+    message = _run(_workflow(_site_job_with(AUDIT_STEP, "")))
     assert message, "a workflow without the blocking audit must fail"
-    assert "node scripts/audit.mjs" in message
+    assert "site job step 4" in message and "node scripts/audit.mjs" in message
 
 
 def test_site_audit_must_follow_install():
-    message = _run(_workflow(AUDIT + INSTALL))
+    message = _run(_workflow(_site_job_with(INSTALL_STEP + AUDIT_STEP, AUDIT_STEP + INSTALL_STEP)))
     assert message, "auditing before the locked install must fail"
-    assert "must follow" in message
+    assert "site job step 3" in message and "npm ci" in message
 
 
 def test_site_audit_must_run_in_site_directory():
-    wrong_directory = AUDIT.replace("working-directory: site", "working-directory: .")
-    message = _run(_workflow(INSTALL + wrong_directory))
+    wrong_directory = AUDIT_STEP.replace("working-directory: site", "working-directory: .")
+    message = _run(_workflow(_site_job_with(AUDIT_STEP, wrong_directory)))
     assert message, "auditing the repository root must fail"
-    assert "working-directory: site" in message
+    assert "site job step 4" in message and "'working-directory': 'site'" in message
 
 
 def test_site_audit_in_later_job_does_not_satisfy_contract():
-    later_job = (
-        "\n"
-        "  release:\n"
-        "    steps:\n"
-        f"{AUDIT}"
-    )
-    message = _run(_workflow(INSTALL, later_job))
+    later_job = "\n  release:\n    steps:\n" + AUDIT_STEP
+    message = _run(_workflow(_site_job_with(AUDIT_STEP, ""), later_job))
     assert message, "an audit in another job must not satisfy the site contract"
     assert "node scripts/audit.mjs" in message
 
 
 def test_dispatch_requires_all_exact_context_inputs():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         "      head_sha:\n        required: true\n",
         "",
     )
@@ -424,7 +412,7 @@ def test_dispatch_requires_all_exact_context_inputs():
 
 
 def test_dispatch_must_validate_live_pr_head_and_base():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         'LIVE_HEAD=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)',
         'echo "validation skipped"',
     )
@@ -434,7 +422,7 @@ def test_dispatch_must_validate_live_pr_head_and_base():
 
 
 def test_dispatch_must_compare_live_head_and_base_to_inputs():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+    workflow = _workflow()
     for comparison in (
         'test "$LIVE_HEAD" = "$HEAD_SHA"',
         'test "$LIVE_BASE" = "$BASE_SHA"',
@@ -445,7 +433,7 @@ def test_dispatch_must_compare_live_head_and_base_to_inputs():
 
 
 def test_required_check_must_fail_closed_when_dispatch_validation_fails():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+    workflow = _workflow()
     for contract in (
         "    if: ${{ always() }}\n",
         "        if: needs.changes.result != 'success'\n",
@@ -457,7 +445,7 @@ def test_required_check_must_fail_closed_when_dispatch_validation_fails():
 
 
 def test_dispatch_base_sha_must_reach_diff_hygiene():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         "${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}",
         "${{ github.event.pull_request.base.sha || github.event.before }}",
     )
@@ -467,7 +455,7 @@ def test_dispatch_base_sha_must_reach_diff_hygiene():
 
 
 def test_dispatch_must_run_graph_review_gate():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         "github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'",
         "github.event_name == 'pull_request'",
     )
@@ -478,7 +466,7 @@ def test_dispatch_must_run_graph_review_gate():
 
 def test_workbench_jobs_must_wait_for_dispatch_validation():
     for job in ("workbench", "workbench-maintained"):
-        workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+        workflow = _workflow().replace(
             f"  {job}:\n    needs: changes\n",
             f"  {job}:\n",
             1,
@@ -489,7 +477,7 @@ def test_workbench_jobs_must_wait_for_dispatch_validation():
 
 
 def test_maintained_workbench_checks_must_run_once_in_their_own_job():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+    workflow = _workflow()
     step = (
         "      - name: maintained workbench checks\n"
         f"        run: {MAINTAINED_CHECKS_COMMAND}\n"
@@ -512,7 +500,7 @@ def test_maintained_workbench_checks_must_run_once_in_their_own_job():
 
 
 def test_hldd_gate_and_regressions_must_run():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+    workflow = _workflow()
     for command in (
         "python scripts/tests/test_hldd.py",
         'python scripts/check_hldd.py --base "$BASE_SHA" --head "$HEAD_SHA"',
@@ -522,7 +510,7 @@ def test_hldd_gate_and_regressions_must_run():
 
 
 def test_hldd_must_use_the_actual_pr_head():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+    workflow = _workflow().replace(
         "HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}",
         "HEAD_SHA: ${{ github.sha }}",
     )
@@ -531,89 +519,162 @@ def test_hldd_must_use_the_actual_pr_head():
 
 
 def test_minimal_workflow_passes():
-    assert _run(_workflow(INSTALL + AUDIT + SITE_TESTS)) is None
+    assert _run(_workflow()) is None
 
 
 def test_site_audit_step_must_have_no_other_keys():
     for changed in (
-        AUDIT + "        continue-on-error: true\n",
-        AUDIT.replace("        run:", "        if: false\n        run:", 1),
-        AUDIT + "        shell: true {0}\n",
-        AUDIT + "        env:\n          NODE_OPTIONS: --import ./skip.mjs\n",
-        AUDIT.replace("node scripts/audit.mjs", "node scripts/audit.mjs || true", 1),
+        AUDIT_STEP + "        continue-on-error: true\n",
+        AUDIT_STEP.replace("        run:", "        if: false\n        run:", 1),
+        AUDIT_STEP + "        shell: true {0}\n",
+        AUDIT_STEP + "        env:\n          NODE_OPTIONS: --import ./skip.mjs\n",
+        AUDIT_STEP.replace("node scripts/audit.mjs", "node scripts/audit.mjs || true", 1),
+        AUDIT_STEP + "      # triage pending\n        if: ${{ false }}\n",
+        AUDIT_STEP + '        "if": false\n',
     ):
-        message = _run(_workflow(INSTALL + changed + SITE_TESTS))
+        message = _run(_workflow(_site_job_with(AUDIT_STEP, changed)))
         assert message, f"a changed audit step must fail: {changed!r}"
-        assert "no other keys" in message
+        assert "site job step 4" in message
 
 
 def test_site_job_must_not_continue_on_error():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
-        "    timeout-minutes: 10\n",
-        "    timeout-minutes: 10\n    continue-on-error: true\n",
-        1,
-    )
-    message = _run(workflow)
-    assert message, "a site job that continues on error must fail"
-    assert "continue-on-error" in message
+    for job in (
+        _site_job_with("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    continue-on-error: true\n"),
+        SITE_JOB_TEXT + '    "continue\\x2Don-error": true\n',
+    ):
+        message = _run(_workflow(job))
+        assert message, "a site job that continues on error must fail"
+        assert "site job keys" in message
 
 
 def test_site_tests_step_must_run():
-    for site_steps in (
-        INSTALL + AUDIT,
-        INSTALL + AUDIT + SITE_TESTS.replace("npm run test:site", "echo skipped", 1),
-        INSTALL + AUDIT + SITE_TESTS + "        if: false\n",
+    for job in (
+        _site_job_with(SITE_TESTS_STEP, ""),
+        _site_job_with(SITE_TESTS_STEP, SITE_TESTS_STEP + "        if: false\n"),
     ):
-        message = _run(_workflow(site_steps))
+        message = _run(_workflow(job))
         assert message, "a site job without its site test step must fail"
-        assert "npm run test:site" in message
+        assert "site job step 5" in message
 
 
 def test_site_job_header_must_stay_pinned():
     for old, new in (
         ("    if: needs.changes.outputs.site == 'true'\n", "    if: false\n"),
         ("    runs-on: ubuntu-latest\n", "    runs-on: self-hosted\n"),
-        ("    needs: changes\n    if: needs.", "    needs: [changes, review]\n    if: needs."),
+        ("    timeout-minutes: 10\n", "    timeout-minutes: 10.0\n"),
+        ("    needs: changes\n", "    needs: [changes, review]\n"),
         ("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    env:\n      NODE_OPTIONS: --import ./x.mjs\n"),
         ("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    defaults:\n      run:\n        shell: true {0}\n"),
         ("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    container: node:22\n"),
         ("    timeout-minutes: 10\n", "    timeout-minutes: 10\n    services:\n      cache:\n        image: redis\n"),
     ):
-        workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
-        assert workflow.count(old) == 1, old
-        message = _run(workflow.replace(old, new, 1))
+        message = _run(_workflow(_site_job_with(old, new)))
         assert message, f"a changed site job header must fail: {new!r}"
         assert "site job" in message
 
 
 def test_site_job_must_not_add_keys_after_its_steps():
-    trailing = "    env:\n      NODE_OPTIONS: --import ./x.mjs\n"
-    message = _run(_workflow(INSTALL + AUDIT + SITE_TESTS + trailing))
-    assert message, "a site job key after its steps must fail"
-    assert "no keys beyond" in message
+    for trailing in (
+        "    env:\n      NODE_OPTIONS: --import ./x.mjs\n",
+        '    "env":\n      NODE_OPTIONS: --import ./x.mjs\n',
+        "    env :\n      NODE_OPTIONS: --import ./x.mjs\n",
+    ):
+        message = _run(_workflow(SITE_JOB_TEXT + trailing))
+        assert message, f"a site job key after its steps must fail: {trailing!r}"
+        assert "site job keys" in message
+
+
+def test_site_job_must_not_gain_a_step():
+    prepare = '      - name: prepare\n        run: echo "NODE_OPTIONS=--import ./x.mjs" >> "$GITHUB_ENV"\n'
+    for job, expected in (
+        (_site_job_with(AUDIT_STEP, prepare + AUDIT_STEP), "site job step 4"),
+        (SITE_JOB_TEXT + prepare, "site job must have exactly 8 steps"),
+    ):
+        message = _run(_workflow(job))
+        assert message, "an added site step must fail"
+        assert expected in message
 
 
 def test_site_path_filter_must_stay_pinned():
     for old, new, expected in (
-        ("'^(site/|docs/|", "'^(site/|", "detect site inputs"),
-        ("        id: scope\n", "        id: other\n", "detect site inputs"),
-        (SITE_OUTPUT, "    outputs:\n      site: false\n", "site output"),
+        ("'^(site/|docs/|", "'^(site/|", "changes job step 3"),
+        ("        id: scope\n", "        id: other\n", "changes job step 3"),
+        ("      site: ${{ steps.scope.outputs.site }}\n", "      site: 'false'\n", "changes job outputs"),
+        (
+            "      - name: detect site inputs\n",
+            '      - name: prepare\n        run: echo /tmp/fake >> "$GITHUB_PATH"\n      - name: detect site inputs\n',
+            "changes job step 3",
+        ),
+        (
+            '            echo "site=false" >> "$GITHUB_OUTPUT"\n          fi\n',
+            '            echo "site=false" >> "$GITHUB_OUTPUT"\n          fi\n      # skip\n        if: false\n',
+            "changes job step 3",
+        ),
     ):
-        workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
+        workflow = _workflow()
         assert workflow.count(old) == 1, old
         message = _run(workflow.replace(old, new, 1))
         assert message, f"a changed site path filter must fail: {new!r}"
         assert expected in message
 
 
-def test_workflow_must_not_set_a_top_level_env_block():
-    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
-        "jobs:\n", "env:\n  NODE_OPTIONS: --import ./x.mjs\njobs:\n", 1
-    )
-    message = _run(workflow)
-    assert message, "a top-level env block must fail"
-    assert "top-level env" in message
+def test_workflow_top_level_keys_must_stay_pinned():
+    for workflow in (
+        _workflow().replace("jobs:\n", "env:\n  NODE_OPTIONS: --import ./x.mjs\njobs:\n", 1),
+        _workflow().replace("jobs:\n", '"env":\n  NODE_OPTIONS: --import ./x.mjs\njobs:\n', 1),
+        _workflow(trailing_job="env:\n  NODE_OPTIONS: --import ./x.mjs\n"),
+        _workflow(trailing_job="defaults:\n  run:\n    shell: bash\n"),
+    ):
+        message = _run(workflow)
+        assert message, "a top-level env or defaults block must fail"
+        assert "top-level keys" in message
 
+
+def test_workflow_must_not_repeat_a_key():
+    for trailing, key in (
+        ("permissions:\n  contents: write\n", "permissions"),
+        ("    if: false\n", "if"),
+    ):
+        message = _run(_workflow(trailing_job=trailing))
+        assert message, f"a repeated {key} key must fail"
+        assert f"repeats the mapping key {key}" in message
+
+
+def test_workflow_parser_install_must_precede_the_contract():
+    workflow = _workflow()
+    parser = "      - name: install CI workflow parser\n        run: python -m pip install pyyaml==6.0.3\n"
+    assert workflow.count(parser) == 1
+    for changed in (
+        workflow.replace(parser, "", 1),
+        workflow.replace(parser, parser.replace("pyyaml==6.0.3", "pyyaml"), 1),
+        workflow.replace(parser, "", 1).replace(
+            "      - name: CI workflow contract tests\n",
+            parser + "      - name: CI workflow contract tests\n",
+            1,
+        ),
+    ):
+        message = _run(changed)
+        assert message, "the contract must follow the pinned parser install"
+        assert "python -m pip install pyyaml==6.0.3" in message
+
+
+def test_contract_without_its_parser_names_the_pinned_install():
+    probe = "import runpy, sys\nsys.modules['yaml'] = None\nrunpy.run_path(sys.argv[1], run_name='__main__')\n"
+    result = subprocess.run(
+        [sys.executable, "-c", probe, str(GUARD)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "python -m pip install pyyaml==6.0.3" in result.stderr
+
+
+def test_invalid_yaml_fails_closed():
+    message = _run(_workflow(trailing_job="  broken: [unclosed\n"))
+    assert message, "a workflow that does not parse must fail"
+    assert "not valid YAML" in message
 
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]

@@ -1,6 +1,7 @@
 // Runs npm audit on the site's lockfile and applies the policy in audit-policy.mjs. audit.mjs is the
 // command CI runs.
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { allowedAdvisories, auditFailures, reportedAdvisories, utcDate } from './audit-policy.mjs';
 
@@ -36,6 +37,16 @@ const runNpmAudit = () => {
 // Returns the exit code and the text to print. Tests pass a fixed `now`, their own allowlist, and a
 // recorded npm result. audit.mjs passes nothing, so CI always audits with the real clock and list.
 export const auditSite = ({ now = new Date(), allowlist = allowedAdvisories, npmAudit = runNpmAudit } = {}) => {
+  // npm reads a project .npmrc from site/, and the flags above don't cover every setting it can hold.
+  if (existsSync(new URL('../.npmrc', import.meta.url))) {
+    return {
+      exitCode: 1,
+      output:
+        "site/.npmrc exists. The audit's flags override offline, registry, and include, not every " +
+        'setting an .npmrc file can hold, such as a proxy or a certificate authority. Remove the file, ' +
+        'or change the audit command after review.',
+    };
+  }
   const audit = npmAudit();
   // npm audit exits 1 whenever it finds an advisory, so the report decides the result, not the exit code.
   let report;

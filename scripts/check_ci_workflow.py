@@ -2,50 +2,118 @@ import importlib.util
 import re
 from pathlib import Path
 
+try:
+    import yaml
+except ImportError as error:
+    raise SystemExit(
+        "scripts/check_ci_workflow.py needs PyYAML. Install it as the tests + checks job does: "
+        "python -m pip install pyyaml==6.0.3"
+    ) from error
+
 
 WORKFLOW = Path(".github/workflows/ci.yml")
 ARTIFACT_CHECKER = Path("scripts/check_release_artifacts.py")
 
-# The site job runs the audit only when its header and the changes job say it runs. A changed
-# condition, runner, path filter, or job-level key could skip or rewire the audit while its
-# steps still read as pinned.
-SITE_JOB_HEADER = (
-    "  site:\n"
-    "    name: site build\n"
-    "    needs: changes\n"
-    "    if: needs.changes.outputs.site == 'true'\n"
-    "    runs-on: ubuntu-latest\n"
-    "    timeout-minutes: 10\n"
-    "    steps:\n"
-)
-SITE_JOB_KEYS = ["name", "needs", "if", "runs-on", "timeout-minutes", "steps"]
-SITE_OUTPUT = "    outputs:\n      site: ${{ steps.scope.outputs.site }}\n"
-SITE_DETECT_STEP = (
-    "      - name: detect site inputs\n"
-    "        id: scope\n"
-    "        shell: bash\n"
-    "        env:\n"
-    "          BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}\n"
-    "          HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}\n"
-    "        run: |\n"
-    "          if [ -z \"$BASE_SHA\" ] || [[ \"$BASE_SHA\" =~ ^0+$ ]]; then\n"
-    "            echo \"site=true\" >> \"$GITHUB_OUTPUT\"\n"
-    "            exit 0\n"
-    "          fi\n"
-    "\n"
-    "          if ! changed=\"$(git diff --name-only \"$BASE_SHA...$HEAD_SHA\")\"; then\n"
-    "            echo \"site=true\" >> \"$GITHUB_OUTPUT\"\n"
-    "            exit 0\n"
-    "          fi\n"
-    "\n"
-    "          if printf '%s\\n' \"$changed\" | grep -Eq \\\n"
-    "            '^(site/|docs/|README\\.md$|CHANGELOG\\.md$|\\.github/workflows/ci\\.yml$)'; then\n"
-    "            echo \"site=true\" >> \"$GITHUB_OUTPUT\"\n"
-    "          else\n"
-    "            echo \"site=false\" >> \"$GITHUB_OUTPUT\"\n"
-    "          fi"
+# The tests + checks job installs the parser in the step right before the contract.
+PARSER_INSTALL = "python -m pip install pyyaml==6.0.3"
+PARSER_STEP = (
+    "      - name: install CI workflow parser\n"
+    f"        run: {PARSER_INSTALL}\n"
+    "      - name: CI workflow contract\n"
+    "        run: python scripts/check_ci_workflow.py\n"
 )
 
+# PyYAML reads YAML 1.1, where a bare `on` key is the boolean True.
+WORKFLOW_KEYS = ["name", True, "permissions", "jobs"]
+
+# The changes job decides whether the site job runs, and the site job runs the audit. Both are
+# pinned as parsed data: every key, every value, and every step in order. A comment line, a quoted
+# key, or an added step changes the parsed value, so it fails the contract.
+CHANGES_JOB = (
+    {'name': 'changed paths',
+     'runs-on': 'ubuntu-latest',
+     'outputs': {'site': '${{ steps.scope.outputs.site }}'},
+     'steps': [{'uses': 'actions/checkout@v7.0.1', 'with': {'fetch-depth': 0}},
+               {'name': 'validate dispatched pull request',
+                'if': "github.event_name == 'workflow_dispatch'",
+                'shell': 'bash',
+                'env': {'GH_TOKEN': '${{ github.token }}',
+                        'HEAD_SHA': '${{ inputs.head_sha }}',
+                        'BASE_SHA': '${{ inputs.base_sha }}',
+                        'PR_NUMBER': '${{ inputs.pull_request_number }}'},
+                'run': '[[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]\n'
+                       '[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]\n'
+                       '[[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]\n'
+                       'test "$GITHUB_SHA" = "$HEAD_SHA"\n'
+                       'LIVE_HEAD=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)\n'
+                       'LIVE_BASE=$(gh pr view "$PR_NUMBER" --json baseRefOid --jq .baseRefOid)\n'
+                       'test "$LIVE_HEAD" = "$HEAD_SHA"\n'
+                       'test "$LIVE_BASE" = "$BASE_SHA"\n'},
+               {'name': 'detect site inputs',
+                'id': 'scope',
+                'shell': 'bash',
+                'env': {'BASE_SHA': '${{ inputs.base_sha || github.event.pull_request.base.sha || '
+                                    'github.event.before }}',
+                        'HEAD_SHA': '${{ inputs.head_sha || github.event.pull_request.head.sha || '
+                                    'github.sha }}'},
+                'run': 'if [ -z "$BASE_SHA" ] || [[ "$BASE_SHA" =~ ^0+$ ]]; then\n'
+                       '  echo "site=true" >> "$GITHUB_OUTPUT"\n'
+                       '  exit 0\n'
+                       'fi\n'
+                       '\n'
+                       'if ! changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"; then\n'
+                       '  echo "site=true" >> "$GITHUB_OUTPUT"\n'
+                       '  exit 0\n'
+                       'fi\n'
+                       '\n'
+                       'if printf \'%s\\n\' "$changed" | grep -Eq \\\n'
+                       '  '
+                       "'^(site/|docs/|README\\.md$|CHANGELOG\\.md$|\\.github/workflows/ci\\.yml$)'; "
+                       'then\n'
+                       '  echo "site=true" >> "$GITHUB_OUTPUT"\n'
+                       'else\n'
+                       '  echo "site=false" >> "$GITHUB_OUTPUT"\n'
+                       'fi\n'}]}
+)
+SITE_JOB = (
+    {'name': 'site build',
+     'needs': 'changes',
+     'if': "needs.changes.outputs.site == 'true'",
+     'runs-on': 'ubuntu-latest',
+     'timeout-minutes': 10,
+     'steps': [{'uses': 'actions/checkout@v7.0.1'},
+               {'uses': 'actions/setup-node@v7',
+                'with': {'node-version': '22',
+                         'cache': 'npm',
+                         'cache-dependency-path': 'site/package-lock.json'}},
+               {'name': 'install', 'run': 'npm ci', 'working-directory': 'site'},
+               {'name': 'audit high and critical site dependencies',
+                'run': 'node scripts/audit.mjs',
+                'working-directory': 'site'},
+               {'name': 'site behavior and information architecture tests',
+                'run': 'npm run test:site',
+                'working-directory': 'site'},
+               {'name': 'build (re-syncs docs, then astro build)',
+                'run': 'npm run build',
+                'working-directory': 'site'},
+               {'name': 'verify generated docs are committed',
+                'run': 'git diff --exit-code -- \\\n'
+                       '  site/src/content/docs \\\n'
+                       '  site/public/llms.txt \\\n'
+                       '  site/public/llms-full.txt\n'
+                       'untracked="$(git ls-files --others --exclude-standard -- \\\n'
+                       '  site/src/content/docs \\\n'
+                       '  site/public/llms.txt \\\n'
+                       '  site/public/llms-full.txt)"\n'
+                       'if [ -n "$untracked" ]; then\n'
+                       '  echo "Generated documentation contains untracked files:"\n'
+                       '  printf \'%s\\n\' "$untracked"\n'
+                       '  exit 1\n'
+                       'fi\n'},
+               {'name': 'check built links and anchors',
+                'run': 'npm run test:links',
+                'working-directory': 'site'}]}
+)
 
 def release_build_commands() -> tuple[str, ...]:
     """One `uv build` line per Python distribution the release checker verifies."""
@@ -78,14 +146,53 @@ def job_block(text: str, name: str) -> str:
     return jobs[start:end]
 
 
-def step_block(job: str, name: str) -> str:
-    """Return the one step with this name, up to the next step or job key, or "" when it is missing or repeated."""
-    marker = f"      - name: {name}\n"
-    if job.count(marker) != 1:
-        return ""
-    start = job.index(marker)
-    following = re.compile(r"\n {0,6}\S").search(job, start)
-    return job[start : following.start() if following else len(job)].rstrip()
+class UniqueKeyLoader(yaml.SafeLoader):
+    """Read YAML safely, and refuse a mapping that repeats a key, which PyYAML reads as its last value."""
+
+    def construct_mapping(self, node, deep=False):
+        keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
+        repeated = sorted({str(key) for key in keys if keys.count(key) > 1})
+        require(not repeated, f"workflow repeats the mapping key {', '.join(repeated)}")
+        return super().construct_mapping(node, deep=deep)
+
+
+def key_names(mapping) -> str:
+    return ", ".join("on" if key is True else str(key) for key in mapping)
+
+
+def check_parsed(text: str) -> None:
+    """Compare the parsed top-level keys and the changes and site jobs with their pins."""
+    # Each comparison uses repr, which keeps types and order, so 1 and true, 0 and false, or a
+    # reordered mapping differ.
+    try:
+        workflow = yaml.load(text, Loader=UniqueKeyLoader)
+    except yaml.YAMLError as error:
+        raise SystemExit(f"{WORKFLOW}: workflow is not valid YAML: {error}") from error
+    require(
+        isinstance(workflow, dict) and repr(list(workflow)) == repr(WORKFLOW_KEYS),
+        "workflow top-level keys must be exactly name, on, permissions, jobs, "
+        f"not {key_names(workflow) if isinstance(workflow, dict) else workflow!r}",
+    )
+    jobs = workflow["jobs"]
+    require(isinstance(jobs, dict), "workflow jobs must be a mapping")
+    for name, pinned in (("changes", CHANGES_JOB), ("site", SITE_JOB)):
+        job = jobs.get(name)
+        require(
+            isinstance(job, dict) and repr(list(job)) == repr(list(pinned)),
+            f"{name} job keys must be exactly {key_names(pinned)}, "
+            f"not {key_names(job) if isinstance(job, dict) else job!r}",
+        )
+        for key, value in pinned.items():
+            if key != "steps":
+                require(repr(job[key]) == repr(value), f"{name} job {key} must be {value!r}")
+        steps = job["steps"]
+        require(isinstance(steps, list), f"{name} job steps must be a list")
+        for number, (step, pinned_step) in enumerate(zip(steps, pinned["steps"]), start=1):
+            require(repr(step) == repr(pinned_step), f"{name} job step {number} must be {pinned_step!r}")
+        require(
+            len(steps) == len(pinned["steps"]),
+            f"{name} job must have exactly {len(pinned['steps'])} steps",
+        )
 
 
 def main() -> None:
@@ -134,17 +241,6 @@ def main() -> None:
         "python scripts/check_installed_route_parity.py --characterize $scripts"
     )
     strato_pin = 'assert version("vivary-strato") == "0.1.3"'
-    site_install = "        run: npm ci\n        working-directory: site"
-    site_audit_step = (
-        "      - name: audit high and critical site dependencies\n"
-        "        run: node scripts/audit.mjs\n"
-        "        working-directory: site"
-    )
-    site_tests_step = (
-        "      - name: site behavior and information architecture tests\n"
-        "        run: npm run test:site\n"
-        "        working-directory: site"
-    )
     dispatched_base = (
         "${{ inputs.base_sha || github.event.pull_request.base.sha || "
         "github.event.before }}"
@@ -239,6 +335,10 @@ def main() -> None:
         "tests job must run the CI workflow contract guard",
     )
     require(
+        test_job.count(PARSER_STEP) == 1,
+        f"tests job must run {PARSER_INSTALL} in the step right before the CI workflow contract",
+    )
+    require(
         contract_tests in test_job,
         f"tests job must run {contract_tests}",
     )
@@ -304,53 +404,7 @@ def main() -> None:
         < governed_job.index(windows_parity_characterize),
         "Windows route parity must precede the installed command surface replay",
     )
-    require(
-        site_install in site_job,
-        "site job must run npm ci with working-directory: site",
-    )
-    require(
-        site_job.count(site_install) == 1,
-        "site job must run npm ci in site exactly once",
-    )
-    require(
-        step_block(site_job, "audit high and critical site dependencies") == site_audit_step,
-        "site job must run node scripts/audit.mjs with working-directory: site "
-        "in one audit step with no other keys",
-    )
-    require(
-        site_job.index(site_install) < site_job.index(site_audit_step),
-        "site dependency audit must follow the locked npm install",
-    )
-    require(
-        step_block(site_job, "site behavior and information architecture tests") == site_tests_step,
-        "site job must run npm run test:site with working-directory: site "
-        "in one site test step with no other keys",
-    )
-    require(
-        "continue-on-error" not in site_job,
-        "site job must not set continue-on-error",
-    )
-    require(
-        site_job.startswith(SITE_JOB_HEADER),
-        "site job header must keep its name, needs: changes, the site condition, "
-        "runs-on: ubuntu-latest, and timeout-minutes: 10, with no other keys",
-    )
-    require(
-        re.findall(r"(?m)^    ([A-Za-z_-]+):", site_job) == SITE_JOB_KEYS,
-        "site job must set no keys beyond its pinned header and steps",
-    )
-    require(
-        SITE_OUTPUT in changes_job,
-        "changes job must expose the site output of its detect site inputs step",
-    )
-    require(
-        step_block(changes_job, "detect site inputs") == SITE_DETECT_STEP,
-        "changes job must keep the pinned detect site inputs step and its site path filter",
-    )
-    require(
-        re.search(r"(?m)^env:", text[: text.index("\njobs:\n")]) is None,
-        "workflow must not set a top-level env block",
-    )
+    check_parsed(text)
 
     print(f"{WORKFLOW}: CI workflow contract passed")
 

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { auditSite, npmAuditArgs } from '../scripts/audit-command.mjs';
 import { allowedAdvisories, auditFailures, utcDate } from '../scripts/audit-policy.mjs';
@@ -59,8 +59,8 @@ const requiredFlags = [
 const posixOnly = { skip: process.platform === 'win32' && 'the npm stub is a POSIX shell script' };
 
 // Runs the audit command with an `npm` stub first on PATH. The stub prints the fixture, or nothing,
-// only when every required flag is present. Otherwise it prints the empty report an offline npm
-// config produces.
+// only for exactly the expected arguments, since npm keeps the last value of a repeated setting.
+// Otherwise it prints the empty report an offline npm config produces.
 const runAudit = (fixture) => {
   const bin = mkdtempSync(path.join(tmpdir(), 'site-audit-npm-'));
   try {
@@ -69,12 +69,10 @@ const runAudit = (fixture) => {
       stub,
       [
         '#!/bin/sh',
-        `for flag in ${requiredFlags.join(' ')}; do`,
-        '  case " $* " in',
-        '    *" $flag "*) ;;',
-        `    *) cat '${fixturePath('offline')}'; exit 0 ;;`,
-        '  esac',
-        'done',
+        `if [ "$*" != "${['audit', ...requiredFlags].join(' ')}" ]; then`,
+        `  cat '${fixturePath('offline')}'`,
+        '  exit 0',
+        'fi',
         fixture ? `cat '${fixturePath(fixture)}'` : 'exit 1',
         '',
       ].join('\n'),
@@ -88,6 +86,25 @@ const runAudit = (fixture) => {
     rmSync(bin, { recursive: true, force: true });
   }
 };
+
+test('a site .npmrc fails the audit', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'site-audit-npmrc-'));
+  try {
+    mkdirSync(path.join(root, 'scripts'));
+    for (const name of ['audit-command.mjs', 'audit-policy.mjs']) {
+      copyFileSync(new URL(`../scripts/${name}`, import.meta.url), path.join(root, 'scripts', name));
+    }
+    const copy = await import(pathToFileURL(path.join(root, 'scripts', 'audit-command.mjs')).href);
+    const run = () => copy.auditSite({ now: new Date('2026-10-10T00:00:00Z'), allowlist, npmAudit: recorded('site') });
+    assert.equal(run().exitCode, 0);
+    writeFileSync(path.join(root, '.npmrc'), 'registry=https://mirror.example/\n');
+    const result = run();
+    assert.equal(result.exitCode, 1);
+    assert.match(result.output, /^site\/\.npmrc exists\. /);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('the live allowlist is valid today', () => {
   assert.deepEqual(auditFailures(report('offline'), allowedAdvisories, utcDate(new Date())), []);
