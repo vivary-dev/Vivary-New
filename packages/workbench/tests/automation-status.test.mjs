@@ -189,25 +189,29 @@ test("a paused automation lists no next run, although its stored next run is in 
 
 // Only the run list's data hook, the translation hook, the chat event helper, and the dialog frame are stubbed.
 // They are matched by the file they resolve to. The dialog frame is Radix, which renders into a portal.
+const i18nStub = `
+  export function useT() { return (key, options) => options?.defaultValue ?? key; }
+  export function useFormatters() { return { formatDate: value => new Date(value).toISOString() }; }`;
+const dialogStub = `
+  export const Dialog = ({ open, children }) => (open ? <div role="dialog">{children}</div> : null);
+  export const DialogContent = ({ children }) => <div>{children}</div>;
+  export const DialogHeader = ({ children }) => <div>{children}</div>;
+  export const DialogFooter = ({ children }) => <div>{children}</div>;
+  export const DialogTitle = ({ children }) => <h2>{children}</h2>;
+  export const DialogDescription = ({ children }) => <p>{children}</p>;`;
 const stubs = new Map([
   [path.join(CLIENT, "agent-page", "use-jobs.js"), `
     export function useAutomationRuns() { return { data: globalThis.__automationRuns, isLoading: false, error: null }; }`],
-  [path.join(CLIENT, "i18n.js"), `
-    export function useT() { return (key, options) => options?.defaultValue ?? key; }`],
+  [path.join(CLIENT, "i18n.js"), i18nStub],
   [path.join(CLIENT, "agent-chat.js"), `
     export function requestAgentChatThreadOpen(detail) { globalThis.__openRequests.push(detail); }`],
-  [path.join(CLIENT, "components", "ui", "dialog.js"), `
-    export const Dialog = ({ open, children }) => (open ? <div role="dialog">{children}</div> : null);
-    export const DialogContent = ({ children }) => <div>{children}</div>;
-    export const DialogHeader = ({ children }) => <div>{children}</div>;
-    export const DialogTitle = ({ children }) => <h2>{children}</h2>;
-    export const DialogDescription = ({ children }) => <p>{children}</p>;`],
+  [path.join(CLIENT, "components", "ui", "dialog.js"), dialogStub],
 ]);
 
 const proofSource = String.raw`
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { AutomationDetailsDialog } from "@proof/details";
+import { AutomationDetailsDialog } from "@proof/entry";
 
 export async function renderDetails(runs) {
   globalThis.__automationRuns = runs;
@@ -232,12 +236,13 @@ export async function renderDetails(runs) {
 }
 `;
 
-async function buildProof() {
+async function buildProof({ source, sourcefile, entry, stubs }) {
   const result = await esbuild.build({
-    stdin: { contents: proofSource, resolveDir: HERE, sourcefile: "automation-details-proof.tsx", loader: "tsx" },
+    stdin: { contents: source, resolveDir: HERE, sourcefile, loader: "tsx" },
     absWorkingDir: WORKBENCH,
     bundle: true,
     write: false,
+    metafile: true,
     platform: "node",
     format: "esm",
     target: "node22",
@@ -245,10 +250,10 @@ async function buildProof() {
     logLevel: "silent",
     define: { "process.env.NODE_ENV": '"development"' },
     plugins: [{
-      name: "automation-details-proof",
+      name: "core-client-proof",
       setup(build) {
         build.onResolve({ filter: /.*/ }, args => {
-          if (args.path === "@proof/details") return { path: path.join(CLIENT, "agent-page", "AutomationDetailsDialog.js") };
+          if (args.path === "@proof/entry") return { path: entry };
           if (args.path.startsWith(".") && args.importer.startsWith(CORE)) {
             const target = path.resolve(path.dirname(args.importer), args.path);
             if (stubs.has(target)) return { path: target, namespace: "stub" };
@@ -260,8 +265,11 @@ async function buildProof() {
       },
     }],
   });
-  return result.outputFiles[0].text;
+  return { code: result.outputFiles[0].text,
+    inputs: Object.keys(result.metafile.inputs).map(input => path.resolve(WORKBENCH, input)) };
 }
+
+const importProof = code => import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 
 function installDom() {
   const linkedom = createRequire(path.join(CORE, "package.json"))("linkedom");
@@ -275,16 +283,25 @@ function installDom() {
     HTMLElement: view.HTMLElement, Element: view.Element, Node: view.Node, Event: view.Event,
     CustomEvent: view.CustomEvent, EventTarget: view.EventTarget, MessageChannel: TrackedMessageChannel,
     IS_REACT_ACT_ENVIRONMENT: true };
+  const replaced = Object.keys(values).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
   for (const [name, value] of Object.entries(values)) {
     Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
   }
-  return () => { for (const channel of channels) { channel.port1.close(); channel.port2.close(); } };
+  return () => {
+    for (const channel of channels) { channel.port1.close(); channel.port2.close(); }
+    for (const [name, descriptor] of replaced) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  };
 }
 
 test("past runs offer no Open thread control, because Settings cannot open a run thread", async t => {
-  const proof = await import(`data:text/javascript;base64,${Buffer.from(await buildProof()).toString("base64")}`);
-  const closeChannels = installDom();
-  t.after(() => closeChannels());
+  const { code } = await buildProof({ source: proofSource, sourcefile: "automation-details-proof.tsx",
+    entry: path.join(CLIENT, "agent-page", "AutomationDetailsDialog.js"), stubs });
+  const proof = await importProof(code);
+  const restoreDom = installDom();
+  t.after(restoreDom);
   const startedAt = Date.now() - 10 * 60_000;
   const run = (id, status, error) => ({ id, status, error, threadId: `thread-${id}`, runId: `run-${id}`,
     startedAt, finishedAt: startedAt + 3_000, errorCode: null, automation: "digest" });
@@ -297,4 +314,199 @@ test("past runs offer no Open thread control, because Settings cannot open a run
   for (const status of ["success", "interrupted", "error"]) assert.match(details.text, new RegExp(status));
   assert.match(details.text, /The run stopped before it recorded a result/, "an interrupted run shows its message");
   assert.deepEqual(details.buttons.filter(label => /open thread/i.test(label)), [], "no run offers Open thread");
+});
+
+// Issue #141. Details must show what the automation list holds now, and the list must refresh while the tab is open.
+// use-action.js is replaced so the real use-jobs.js hooks run on real React Query, answered by a fake transport.
+const jobsTabStubs = new Map([
+  [path.join(CLIENT, "use-action.js"), `
+    import { useMutation, useQuery } from "@tanstack/react-query";
+    export function useActionQuery(actionName, params, options) {
+      return useQuery({ queryKey: ["action", actionName, params], retry: false,
+        queryFn: async () => globalThis.__proofTransport(actionName, params), ...options });
+    }
+    export function useActionMutation(actionName, options) {
+      const { method, skipActionQueryInvalidation, timeoutMs, ...rest } = options ?? {};
+      return useMutation({ ...rest, mutationFn: async () => ({}) });
+    }`],
+  [path.join(CLIENT, "i18n.js"), i18nStub],
+  [path.join(CLIENT, "components", "ui", "dialog.js"), dialogStub],
+  [path.join(CLIENT, "components", "ui", "popover.js"), `
+    export const Popover = ({ children }) => <div>{children}</div>;
+    export const PopoverTrigger = ({ children }) => children;
+    export const PopoverContent = ({ children }) => <div>{children}</div>;`],
+  [path.join(CLIENT, "AgentAskPopover.js"), `export function AgentAskPopover() { return null; }`],
+  [path.join(CLIENT, "settings", "AutomationsSection.js"), `export function automationCreationContext() { return ""; }`],
+  [path.join(CLIENT, "agent-page", "AutomationScheduleDialog.js"), `export function AutomationScheduleDialog() { return null; }`],
+]);
+
+const jobsTabSource = String.raw`
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider, environmentManager, timeoutManager } from "@tanstack/react-query";
+import { AgentJobsTab } from "@proof/entry";
+
+const settle = () => act(async () => {
+  for (let turn = 0; turn < 5; turn += 1) await new Promise(resolve => setTimeout(resolve, 0));
+});
+
+export async function mountJobsTab(rows) {
+  const calls = new Map();
+  globalThis.__proofTransport = (action, params) => {
+    const key = params.scope ? action + " " + params.scope : action;
+    calls.set(key, (calls.get(key) ?? 0) + 1);
+    if (action === "list-automations") return rows[params.scope];
+    if (action === "get-scheduled-trigger-status") return { available: true };
+    return [];
+  };
+  const client = new QueryClient();
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<QueryClientProvider client={client}><AgentJobsTab hideHeader /></QueryClientProvider>);
+  });
+  await settle();
+  return {
+    calls: (action, scope) => calls.get(action + " " + scope) ?? 0,
+    async openDetails() {
+      const details = [...host.querySelectorAll("button")].find(button => button.textContent.trim() === "Details");
+      await act(async () => { details.click(); });
+      await settle();
+    },
+    details() {
+      const dialog = host.querySelector('[role="dialog"]');
+      return dialog && Object.fromEntries([...dialog.querySelectorAll("dt")]
+        .map(term => [term.textContent, term.nextElementSibling?.textContent]));
+    },
+    async setList(scope, list) {
+      await act(async () => { client.setQueryData(["action", "list-automations", { scope }], list); });
+      await settle();
+    },
+    async unmount() {
+      await act(async () => { root.unmount(); });
+      client.clear();
+      host.remove();
+    },
+  };
+}
+
+export function recordTimers() {
+  const wasServer = environmentManager.isServer();
+  const intervals = new Set();
+  // Timeouts never run, so the five minute cache timer cannot keep node --test alive.
+  const recording = {
+    setTimeout: () => ({}),
+    clearTimeout: () => {},
+    setInterval: (callback, ms) => {
+      const timer = { callback, ms };
+      intervals.add(timer);
+      return timer;
+    },
+    clearInterval: timer => { intervals.delete(timer); },
+  };
+  // The bundle loads before the DOM, so React Query took this process for a server and starts no timers.
+  environmentManager.setIsServer(() => false);
+  timeoutManager.setTimeoutProvider(recording);
+  return {
+    async fire(maxMs) {
+      const due = [...intervals].filter(timer => timer.ms <= maxMs);
+      await act(async () => { for (const timer of due) timer.callback(); });
+      await settle();
+    },
+    restore() {
+      // Setting the same provider first clears React Query's development warning about switching after use.
+      timeoutManager.setTimeoutProvider(recording);
+      timeoutManager.setTimeoutProvider({ setTimeout, clearTimeout, setInterval, clearInterval });
+      environmentManager.setIsServer(() => wasServer);
+    },
+  };
+}
+`;
+
+let jobsTab;
+const jobsTabProof = () => {
+  jobsTab ??= (async () => {
+    const { code, inputs } = await buildProof({ source: jobsTabSource, sourcefile: "automation-jobs-tab-proof.tsx",
+      entry: path.join(CLIENT, "agent-page", "AgentJobsTab.js"), stubs: jobsTabStubs });
+    for (const file of ["AgentJobsTab.js", "AutomationDetailsDialog.js", "use-jobs.js"]) {
+      assert.ok(inputs.includes(path.join(CLIENT, "agent-page", file)), `the proof bundles Core's real ${file}`);
+    }
+    return importProof(code);
+  })();
+  return jobsTab;
+};
+
+const tick = Date.UTC(2026, 8, 29, 14, 16, 40);
+const listed = { id: "res-digest", name: "digest", scope: "personal", enabled: true, canUpdate: true,
+  triggerType: "schedule", schedule: "* * * * *", scheduleDescription: "Every minute", timezone: "UTC",
+  body: "Summarize the project.", mcpTools: [], lastError: null, createdBy: owner, model: null };
+const beforeTick = { ...listed, lastCheck: iso(tick), nextRun: iso(tick + 20_000), lastRun: null, lastStatus: null };
+const afterTick = { ...listed, lastCheck: iso(tick + 60_000), nextRun: iso(tick + 80_000),
+  lastRun: iso(tick + 20_000), lastStatus: "success" };
+
+function assertDetailsShow(shown, row, where) {
+  assert.equal(shown?.["Last checked"], row.lastCheck, `${where} shows the LAST CHECKED the list now holds`);
+  assert.equal(shown?.["Next run"], row.nextRun, `${where} shows the NEXT RUN the list now holds`);
+  assert.equal(shown?.["Last run"], row.lastRun, `${where} shows the LAST RUN the list now holds`);
+  assert.equal(shown?.["Last status"], row.lastStatus, `${where} shows the LAST STATUS the list now holds`);
+}
+
+test("an open Details dialog follows the automation list when the list changes", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const rows = { personal: [beforeTick], organization: [] };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    await tab.openDetails();
+    assert.equal(tab.details()?.["Last checked"], beforeTick.lastCheck, "Details opens on the list's LAST CHECKED");
+    rows.personal = [afterTick];
+    await tab.setList("personal", [afterTick]);
+    assertDetailsShow(tab.details(), afterTick, "an open Details dialog");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("opening Details fetches the automation list again", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const rows = { personal: [beforeTick], organization: [] };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    const fetched = tab.calls("list-automations", "personal");
+    rows.personal = [afterTick];
+    await tab.openDetails();
+    assert.ok(tab.calls("list-automations", "personal") > fetched,
+      "opening Details fetches the personal automation list again");
+    assertDetailsShow(tab.details(), afterTick, "Details opened after the list changed");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("the automation list refreshes while the Automations tab stays open", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const rows = { personal: [beforeTick], organization: [] };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    await tab.openDetails();
+    const fetched = tab.calls("list-automations", "personal");
+    rows.personal = [afterTick];
+    // The scheduler heartbeat moves every 60 seconds, so a 30 second refresh keeps LAST CHECKED within half a tick.
+    await timers.fire(30_000);
+    assert.ok(tab.calls("list-automations", "personal") > fetched,
+      "a timer of 30 seconds or less fetches the personal automation list again while the tab stays open");
+    assertDetailsShow(tab.details(), afterTick, "an open Details dialog after a timed refresh");
+  } finally {
+    await tab.unmount();
+  }
 });
