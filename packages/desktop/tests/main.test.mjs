@@ -11,12 +11,21 @@ import { test } from "node:test";
 const electronStub = "data:text/javascript," + encodeURIComponent(
   "export const app = { setName() {}, isPackaged: false }; export const BrowserWindow = null; export const dialog = {}; export const session = {}; export const shell = {};",
 );
+const mainModule = new URL("../main.mjs", import.meta.url).href;
+const childProcessStub = "data:text/javascript," + encodeURIComponent(
+  "export let fork; export const setFork = value => { fork = value; }; export { spawnSync } from 'node:child_process';",
+);
 const hooks = registerHooks({
   resolve(specifier, context, nextResolve) {
-    return specifier === "electron" ? { url: electronStub, shortCircuit: true } : nextResolve(specifier, context);
+    if (specifier === "electron") return { url: electronStub, shortCircuit: true };
+    if (specifier === "node:child_process" && context.parentURL === mainModule) {
+      return { url: childProcessStub, shortCircuit: true };
+    }
+    return nextResolve(specifier, context);
   },
 });
-const { createExternalWindowHandler, attachProjectFolderChooser, chooseDesktopPort, DESKTOP_PORT_RANGE, desktopDataDir, flushDraftsBeforeQuit, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment, portChangeNotice, saveDesktopPort, selectLoopbackPort, startOnDesktopPort } = await import("../main.mjs");
+const { launchServer, createExternalWindowHandler, attachProjectFolderChooser, chooseDesktopPort, DESKTOP_PORT_RANGE, desktopDataDir, flushDraftsBeforeQuit, isExternalSetupUrl, isProjectFolderRequest, localChildEnvironment, portChangeNotice, saveDesktopPort, selectLoopbackPort, startOnDesktopPort } = await import("../main.mjs");
+const { setFork } = await import(childProcessStub);
 hooks.deregister();
 
 const firstId = "01a094af-1abc-4234-8abc-123456789abc";
@@ -334,4 +343,47 @@ test("the desktop data folder is the local server's default and is passed to it"
   const start = source.indexOf("const started = await startOnDesktopPort(");
   const save = source.indexOf("await saveDesktopPort(dataDir, started.port)");
   assert.ok(start > 0 && save > start, "the port is saved after the server started");
+});
+
+test("Windows server launch preserves independent cleanup after Electron exits", { timeout: 3000 }, async () => {
+  const root = path.resolve("desktop-spawn-fixture");
+  const input = {
+    root, node: path.join(root, "node.exe"), entry: path.join(root, "bin", "desktop-server.mjs"),
+    dataDir: path.join(root, "profile"), port: 42_199,
+  };
+  const child = childFixture();
+  child.exitCode = null;
+  child.signalCode = null;
+  const calls = [];
+  setFork((entry, args, options) => {
+    calls.push({ entry, args, options });
+    return child;
+  });
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  try {
+    Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+    const starting = launchServer(input);
+    child.emit("message", { type: "vivary:desktop:bootstrap-needed" });
+    child.emit("message", { type: "ready", origin: "http://127.0.0.1:42199" });
+    assert.deepEqual(await starting, { origin: "http://127.0.0.1:42199" });
+    assert.equal(child.replies.length, 1);
+    assert.equal(child.replies[0].type, "vivary:desktop:bootstrap");
+    assert.match(child.replies[0].capability, /^[\w-]{43}$/);
+    assert.equal(calls.length, 1);
+    const { entry, args, options } = calls[0];
+    assert.equal(entry, input.entry);
+    assert.deepEqual(args, ["--port", "42199", "--data-dir", input.dataDir]);
+    assert.equal(options.cwd, input.root);
+    assert.equal(options.execPath, input.node);
+    assert.deepEqual(options.stdio, ["ignore", "ignore", "ignore", "ipc"]);
+    assert.equal(options.windowsHide, true);
+    assert.equal(options.detached, true, "Windows server must survive Electron exit to clean its tree");
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    // No real PID exists. Mark the fake ended without invoking app shutdown callbacks.
+    child.exitCode = 0;
+    child.connected = false;
+    child.removeAllListeners();
+    setFork(undefined);
+  }
 });
