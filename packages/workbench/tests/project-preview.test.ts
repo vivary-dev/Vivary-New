@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { createServer } from "node:http";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -622,3 +625,88 @@ test("legacy bun.lockb starts and stops with an installed Bun launcher",
       await rm(root, { recursive: true, force: true });
     }
   });
+
+
+for (const failure of ["non-launch", "launched failure"] as const) {
+  test("a Windows preview " + failure + (failure === "non-launch"
+    ? " releases its reservation" : " retains unverified cleanup"), { timeout: 15_000 }, async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "vivary-preview-spawn-failure-"));
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    assert.ok(platform);
+    const previousBundle = process.env.VIVARY_ORIGINAL_RUNTIME; // guard:allow-env-credential - Restore fixture runtime selection.
+    delete process.env.VIVARY_ORIGINAL_RUNTIME; // guard:allow-env-credential - Exercise source owner selection in this fixture.
+    const children: ChildProcess[] = [];
+    let recovered = false;
+    const service = createProjectPreviewService({
+      mode: () => "local", resolveWorkspace: async (_context, projectId) => workspace(root, projectId),
+      resolveLauncher: async manager => ({ manager, executable: process.execPath, prefix: [] }),
+      spawn: new Proxy(spawn, {
+        apply(_target, _receiver, [_command, _arguments, options]) {
+          // Select the Windows service path, then use the real host spawn API and events.
+          Object.defineProperty(process, "platform", platform);
+          const child = !recovered && failure === "non-launch"
+            ? spawn(path.join(root, "missing-preview-interpreter"), [], options)
+            : !recovered
+              ? spawn(process.execPath, ["-e", "process.exit(7)"], options)
+              : spawn(process.execPath, [path.join(root, "owner.mjs")], options);
+          children.push(child);
+          return child;
+        },
+      }),
+    });
+    try {
+      await fixture(root);
+      await writeFile(path.join(root, "owner.mjs"),
+        "import { createServer } from 'node:http';\n" +
+        "const server = createServer((_req, res) => res.end('owned')).listen(Number(process.env.PORT), '127.0.0.1');\n" +
+        "process.stdin.resume(); process.stdin.once('end', () => server.close(() => process.exit(0)));\n");
+      const url = "http://127.0.0.1:" + await freePort() + "/";
+      const review = await service.run({ operation: "review", projectId: "spawn-failure", script: "dev", url }, owner);
+      assert.equal(review.code, "review");
+      if (review.code !== "review") return;
+      const input = { operation: "start" as const, projectId: "spawn-failure", script: "dev" as const, url,
+        requestId: randomUUID(), acceptedManifestDigest: review.manifestDigest, reviewExpiresAt: review.reviewExpiresAt };
+      Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+      const failed = await service.run(input, owner);
+      assert.equal(failed.code, "unavailable");
+      if (failed.code !== "unavailable") return;
+      assert.equal(failed.processRunning, false);
+      recovered = true;
+      if (failure === "non-launch") {
+        assert.equal(failed.pid, null);
+        assert.equal(children[0].pid, undefined, "real ENOENT emitted an error without a PID");
+        Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+        const retried = await service.run({ ...input, requestId: randomUUID() }, owner);
+        assert.equal(retried.code, "ready", "retry owns the same port without an intervening Stop");
+        if (retried.code !== "ready") return;
+        const stoppedFailure = await service.run({ operation: "stop", projectId: input.projectId, launchId: failed.launchId }, owner);
+        assert.equal(stoppedFailure.code, "stopped");
+        assert.equal(await (await fetch(url)).text(), "owned", "stopping the non-launch cannot stop its replacement");
+        assert.equal((await service.run({ operation: "stop", projectId: input.projectId, launchId: retried.launchId }, owner)).code, "stopped");
+        await service.shutdown();
+      } else {
+        assert.ok(failed.pid && failed.pid > 0, "the failed owner really launched");
+        await assert.rejects(service.run({ operation: "stop", projectId: input.projectId, launchId: failed.launchId }, owner), /could not be stopped/);
+        await assert.rejects(service.run({ ...input, requestId: randomUUID() }, owner), /existing owned preview/);
+        const other = await service.run({ operation: "review", projectId: "other-project", script: "dev", url }, owner);
+        assert.equal(other.code, "review");
+        if (other.code === "review") await assert.rejects(service.run({ ...input, projectId: "other-project", requestId: randomUUID(),
+          acceptedManifestDigest: other.manifestDigest, reviewExpiresAt: other.reviewExpiresAt }, owner), /already in use or reserved/);
+        await assert.rejects(service.shutdown(), /could not be stopped/);
+      }
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+      if (previousBundle === undefined) delete process.env.VIVARY_ORIGINAL_RUNTIME; // guard:allow-env-credential - Restore fixture runtime selection.
+      else process.env.VIVARY_ORIGINAL_RUNTIME = previousBundle; // guard:allow-env-credential - Restore fixture runtime selection.
+      await service.shutdown().catch(() => {});
+      for (const child of children) {
+        if (child.pid && child.exitCode === null && child.signalCode === null) {
+          const exited = once(child, "exit");
+          child.kill("SIGKILL");
+          await exited;
+        }
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}

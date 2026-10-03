@@ -13,6 +13,7 @@ import { projectPreviewInput, projectPreviewResult, type ProjectPreviewInput,
   type ProjectPreviewResult, type ProjectPreviewScript } from "../shared/project-preview";
 import { hardStopWorkerTree } from "./code-execution-host";
 import { sameOriginalWorkspace } from "./original-runtime";
+import { resolveOriginalRuntime } from "./original-runtime-location.mjs";
 import { resolveLocalProjectWorkspace, type LocalProjectWorkspace } from "./project-services.mjs";
 
 type Identity = { ownerEmail: string; orgId: string };
@@ -20,6 +21,24 @@ type Launcher = { manager: "npm" | "pnpm" | "bun"; executable: string; prefix: s
 type Review = Extract<ProjectPreviewResult, { code: "review" }>;
 type Prepared = { review: Review; launcher: Launcher };
 type LaunchResult = Extract<ProjectPreviewResult, { code: "starting" | "ready" | "unavailable" | "stopped" }>;
+type PreviewProcess = { kind: "process-group" }
+  | { kind: "windows-job"; cleanExit: Promise<void> };
+
+/** Observe the owner from spawn, including pipe failures before Stop is requested. */
+function observePreviewOwnerExit(child: ChildProcess): Promise<void> {
+  const cleanExit = new Promise<void>((resolve, reject) => {
+    child.once("exit", (code, signal) => {
+      if (code === 0 && signal === null) resolve();
+      else reject(new Error("The preview owner did not confirm process-tree cleanup."));
+    });
+    child.once("error", reject);
+    if (!child.stdin) reject(new Error("The preview owner lifetime pipe is unavailable."));
+    else child.stdin.once("error", reject);
+  });
+  // An early failure remains rejected for Stop and natural-exit cleanup to inspect.
+  void cleanExit.catch(() => {});
+  return cleanExit;
+}
 type Entry = {
   identity: Identity;
   workspace: LocalProjectWorkspace;
@@ -28,6 +47,7 @@ type Entry = {
   launchId: string;
   pid: number | null;
   child: ChildProcess | null;
+  process: PreviewProcess;
   state: "starting" | "ready" | "unavailable" | "stopped";
   checkedAt?: string;
   embedding: "blocked" | "unknown";
@@ -238,6 +258,31 @@ function childEnvironment(url: URL, launcher: Launcher, root: string): NodeJS.Pr
   if (launcher.executable === process.execPath) env.ELECTRON_RUN_AS_NODE = "1";
   return env;
 }
+type PreviewLaunch = {
+  executable: string; args: string[]; cwd: string;
+  processKind: PreviewProcess["kind"];
+};
+async function previewLaunch(launcher: Launcher, script: ProjectPreviewScript, root: string): Promise<PreviewLaunch> {
+  const args = [...launcher.prefix, "run", script];
+  if (process.platform !== "win32") {
+    return { executable: launcher.executable, args, cwd: root, processKind: "process-group" };
+  }
+  try {
+    // guard:allow-env-credential - Launcher-selected bundled runtime, not a credential.
+    const directory = process.env.VIVARY_ORIGINAL_RUNTIME;
+    const bundled = directory ? await resolveOriginalRuntime(directory) : null;
+    // guard:allow-env-credential - Development-selected interpreter, matching the original runtime boundary.
+    const python = process.env.VIVARY_PYTHON ?? "python";
+    const executable = bundled?.executable ?? (path.basename(python) === python ? python : path.resolve(python));
+    const owner = bundled ? path.join(bundled.root, "bridge", "windows_preview_owner.py")
+      : path.join(process.cwd(), "server", "windows_preview_owner.py");
+    await access(owner);
+    return { executable, args: ["-I", "-X", "utf8", "-B", owner, root, launcher.executable, ...args],
+      cwd: path.dirname(owner), processKind: "windows-job" };
+  } catch {
+    return refuse("The Windows preview owner is unavailable in this runtime.");
+  }
+}
 function commandText(launcher: Launcher, script: ProjectPreviewScript): string {
   return launcher.manager + " run " + script;
 }
@@ -368,7 +413,22 @@ async function stopOwned(entry: Entry, occupied: typeof portOccupied, onSettled:
         entry.state = "stopped";
         return;
       }
-      if (child?.pid) {
+      if (entry.process.kind === "windows-job") {
+        if (child?.pid && child.exitCode === null && child.signalCode === null) {
+          // Child and stdin errors were observed at spawn, before any EOF can be sent.
+          if (!child.stdin) throw new Error("The preview owner lifetime pipe is unavailable.");
+          child.stdin.end();
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            entry.process.cleanExit,
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(new Error("The owned preview process did not exit.")), 4_000);
+            }),
+          ]);
+        } finally { clearTimeout(timer); }
+      } else if (child?.pid) {
         const workerExited = child.exitCode !== null || child.signalCode !== null;
         const exited = workerExited ? Promise.resolve()
           : new Promise<void>(resolve => child.once("exit", () => resolve()));
@@ -570,6 +630,7 @@ export function createProjectPreviewService(
       if (final.review.manifestDigest !== reviewed.manifestDigest) {
         return refuse("The reviewed package contents or launcher changed. Review it again.");
       }
+      const launch = await previewLaunch(final.launcher, input.script, current.root);
       const last = await deps.resolveWorkspace(context, input.projectId);
       if (!sameOriginalWorkspace(last, current)) {
         return refuse("The reviewed project folder changed before launch. Review it again.");
@@ -579,15 +640,17 @@ export function createProjectPreviewService(
         return refuse("The preview review expired. Review the command again.");
       }
       const launcher = final.launcher;
-      const child = deps.spawn(launcher.executable, [...launcher.prefix, "run", input.script], {
-        cwd: last.root, env: childEnvironment(url, launcher, last.root),
+      const child = deps.spawn(launch.executable, launch.args, {
+        cwd: launch.cwd, env: childEnvironment(url, launcher, last.root),
         detached: process.platform !== "win32", windowsHide: true, shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: [launch.processKind === "windows-job" ? "pipe" : "ignore", "pipe", "pipe"],
       });
       const entry: Entry = {
         identity: owner, workspace: last, review: reviewed,
         requestId: input.requestId, launchId: randomUUID(), pid: child.pid ?? null,
-        child, state: "starting", embedding: "unknown", logTail: "", reservationToken,
+        child, process: launch.processKind === "windows-job"
+          ? { kind: "windows-job", cleanExit: observePreviewOwnerExit(child) } : { kind: "process-group" },
+        state: "starting", embedding: "unknown", logTail: "", reservationToken,
         remote: new AbortController(), processIdentity: capturePreviewProcess(child),
       };
       state.current.set(key, entry);
@@ -600,7 +663,13 @@ export function createProjectPreviewService(
         if (entry.state !== "stopped") {
           entry.state = "unavailable";
           entry.reason = "The approved preview command could not start.";
-          void stopOwned(entry, deps.portOccupied, () => settle(entry)).catch(() => {});
+          if (child.pid === undefined) {
+            // A confirmed spawn failure owns no process tree or listening port.
+            entry.child = null;
+            settle(entry);
+          } else {
+            void stopOwned(entry, deps.portOccupied, () => settle(entry)).catch(() => {});
+          }
         }
       });
       child.once("exit", () => {
@@ -612,7 +681,11 @@ export function createProjectPreviewService(
         // Clean the owned group at exit. A later Stop must never signal a saved PID.
         if (!entry.stopPromise) {
           const cleanup = (async () => {
-            await hardStopWorkerTree(child, true);
+            if (entry.process.kind === "windows-job") {
+              await entry.process.cleanExit;
+            } else {
+              await hardStopWorkerTree(child, true);
+            }
             if (!await portClosed(deps.portOccupied, port)) throw new Error("The preview port remains open.");
             settle(entry);
             return true;

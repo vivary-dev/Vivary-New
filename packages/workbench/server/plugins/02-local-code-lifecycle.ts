@@ -24,8 +24,10 @@ const stopLocalWork = async () => {
 };
 
 export default defineNitroPlugin(async (nitroApp) => {
-  // guard:allow-env-credential - The direct CLI launcher owns this process's exit.
+  // guard:allow-env-credential - The dedicated CLI and desktop launchers own this process's exit.
   const standalone = process.env.VIVARY_STANDALONE_HOST === "1";
+  // guard:allow-env-credential - The Windows desktop parent owns the tree fallback.
+  const windowsDesktop = standalone && process.platform === "win32" && process.env.VIVARY_DESKTOP_HOST === "1";
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
@@ -36,7 +38,7 @@ export default defineNitroPlugin(async (nitroApp) => {
       if (standalone) process.exit(0);
     }).catch(() => {
       console.error("[vivary-local-host] Shutdown did not settle.");
-      if (standalone) process.exit(1);
+      if (standalone && !windowsDesktop) process.exit(1);
     });
   };
   const removeSignalHandlers = () => {

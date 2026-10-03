@@ -292,7 +292,20 @@ once, then follows its schedule. When Vivary serves browser access, runs continu
 browser tab open.
 
 Quitting Vivary during a run ends the run, and **Details** shows it as interrupted.
-Vivary takes about 15 seconds to close. The next launch checks schedules about 70
+Builds with the [issue #138](https://github.com/vivary-dev/vivary/issues/138) fix exit
+after cleanup instead of waiting for the desktop fallback. The private `4f7a0394`
+Windows package closed idle, active scheduled and active webhook runs in 573, 319
+and 301 ms. All observed package processes were gone within 761, 450 and 455 ms.
+Active-preview normal close and abrupt Electron loss also removed the recorded
+preview tree and closed its port. Terminating only the server removed its complete
+recorded descendant tree in 613 ms while Electron remained alive. The earlier
+`d8cb7665` crash failure is superseded by these checks.
+These are measured runs, not fixed timing guarantees. The 15-second fallback remains
+configured. Pending or failed cleanup retains the server for the parent's tree kill.
+If Electron disconnects, the server gives cleanup 15 seconds before attempting
+to stop its own tree. The [acceptance receipt](product/multi-project/receipts/138-desktop-quit-exit.md)
+records the package, persistence outcomes, controls and historical failures.
+The next launch checks schedules about 70
 seconds after it starts. If Vivary was ended without quitting, for example from Task
 Manager, the run shows as running, and that automation waits up to 10 minutes after the
 next launch while your other automations run on schedule. During that wait, **Details**
