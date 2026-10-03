@@ -1550,11 +1550,14 @@ event, and webhook triggers, and both the packaged app and the hosted server
 run all three in process, so that part of #115 needed no patch change.
 
 Since issue #140, NEXT RUN in Details shows a wait instead of a date while a
-lease or an unfinished run keeps the scheduler from acting on the automation. It
-reads "After the current run finishes", "Scheduling resumes after {{date}}, when
-an unfinished run times out", "Scheduling resumes after {{date}}, when an
-interrupted schedule check times out", or, once that time has passed, "Waiting
-for the next schedule check". See "Settings next run during a scheduler wait".
+lease or an unfinished run keeps the scheduler from acting on the automation
+before its next run. It reads "After the current run finishes", "Scheduling
+resumes after {{date}}, when an unfinished run times out", "Scheduling resumes
+after {{date}}, when an interrupted schedule check times out", or, once that
+time has passed, "Waiting for the next schedule check". An automation whose next
+run falls after the wait keeps that time. For the first 90 seconds after a
+scanner dies during its scan, its fresh lease reads as a live scan's, and
+Details shows the next run. See "Settings next run during a scheduler wait".
 
 Run `node --test packages/workbench/tests/automation-status.test.mjs`. It uses
 a disposable SQLite database with `NODE_ENV=production`. It records a
@@ -1768,7 +1771,8 @@ was added, because clearing a lease or ending rows at launch is unsafe when two
 processes share a database. The lease length, the renewal, the liveness ceiling,
 and the claim lease are unchanged. While a dead process's run lease holds,
 Settings shows when scheduling resumes instead of a next run that passes with no
-run. See "Settings next run during a scheduler wait".
+run. An automation whose next run falls after the wait keeps that time. See
+"Settings next run during a scheduler wait".
 
 Trigger runs record their outcome through the dispatcher, which catches the
 run's error and writes the automation's last error from its message, without
@@ -1969,8 +1973,10 @@ server. That is not new. Before this change the sweep ignored a failed renewal,
 and the time window freed such a run the same way. A run does not abort when its
 renewal finds another holder. A process still runs at most eight scheduled jobs
 at once. Since issue #140, Settings shows when scheduling resumes while a run
-lease or a dead scanner's lease holds, instead of a next run that passes with no
-run. See "Settings next run during a scheduler wait". Issue #141 keeps
+lease or a dead scanner's lease blocks an automation's next run, after the first
+90 seconds for a dead scanner, whose fresh lease reads as a live scan's. An
+automation whose next run falls after the wait keeps that time. See "Settings
+next run during a scheduler wait". Issue #141 keeps
 LAST CHECKED in the Details dialog current. Run now and scheduled runs now
 write the health table before the running mark, so they need it writable. When
 the run lease cannot be taken because that write fails, the run does not start.

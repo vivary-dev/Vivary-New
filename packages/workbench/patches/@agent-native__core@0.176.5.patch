@@ -10558,7 +10558,7 @@ index ea9fd705f1741f2988ac6fca3498c9a831811a7d..99142fc8d5899f6a2bd057414a28d561
              },
          };
 diff --git a/dist/server/agent-chat-plugin.js b/dist/server/agent-chat-plugin.js
-index 61cbf15014173e612be5219b8dc76f8c93a2848e..1f5658f7ed522b5993a82766f8aca981fe12ef53 100644
+index 61cbf15014173e612be5219b8dc76f8c93a2848e..04dbefacb4f61e9066df9e9ccdcbc59a9083f1cd 100644
 --- a/dist/server/agent-chat-plugin.js
 +++ b/dist/server/agent-chat-plugin.js
 @@ -1,3 +1,4 @@
@@ -10916,7 +10916,7 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..1f5658f7ed522b5993a82766f8aca981
                      apiKey: options?.apiKey,
                      model: resolveConfiguredAgentModel(options),
                      appId: options?.appId,
-@@ -5439,13 +5423,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
+@@ -5439,15 +5423,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                      }
                  }
                  else {
@@ -10938,8 +10938,11 @@ index 61cbf15014173e612be5219b8dc76f8c93a2848e..1f5658f7ed522b5993a82766f8aca981
 -                        }, 60_000);
 +                        }, AUTOMATION_SCHEDULER_TICK_MS);
                          if (process.env.DEBUG)
-                             console.log("[recurring-jobs] Scheduler started (60s interval)");
+-                            console.log("[recurring-jobs] Scheduler started (60s interval)");
++                            console.log(`[recurring-jobs] Scheduler started (${AUTOMATION_SCHEDULER_TICK_MS / 1000}s interval)`);
                      }, 10_000);
+                 }
+             }
 @@ -5762,24 +5755,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
              await initTriggerDispatcher({
                  getActions: getBackgroundActionEntries,

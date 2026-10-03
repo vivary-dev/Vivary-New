@@ -748,6 +748,23 @@ test("Details shows when scheduling resumes while the scheduler waits", async t 
   }
 });
 
+test("Details shows the wait while the scheduler status check fails", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const resumesAfter = iso(Date.now() + 5 * 60_000);
+  const row = { ...afterTick, nextRun: null, schedulerWait: { reason: "stalled-run", resumesAfter } };
+  const tab = await proof.mountJobsTab({ personal: [row], organization: [], failing: ["get-scheduled-trigger-status"] });
+  try {
+    assert.match(tab.text(), /check whether schedules run here/, "the scheduler status check failed");
+    await tab.openDetails();
+    assert.equal(tab.details()?.["Next run"],
+      `Scheduling resumes after ${resumesAfter}, when an unfinished run times out`);
+  } finally {
+    await tab.unmount();
+  }
+});
+
 test("Details says no scheduler runs in this deploy, whatever the wait", async t => {
   const proof = await jobsTabProof();
   const restoreDom = installDom();
