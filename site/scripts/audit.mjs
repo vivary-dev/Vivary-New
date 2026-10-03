@@ -1,10 +1,15 @@
-// CI runs this from site/ to audit the locked dependencies. The policy and its exceptions live in
-// audit-policy.mjs.
+// Audits the site's locked dependencies from any working directory. The policy and its exceptions
+// live in audit-policy.mjs.
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { allowedAdvisories, auditFailures, reportedAdvisories } from './audit-policy.mjs';
 
 // npm audit exits 1 whenever it finds an advisory, so the report decides the result, not the exit code.
-const audit = spawnSync('npm', ['audit', '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const audit = spawnSync('npm', ['audit', '--json'], {
+  cwd: fileURLToPath(new URL('..', import.meta.url)),
+  encoding: 'utf8',
+  maxBuffer: 64 * 1024 * 1024,
+});
 if (audit.error) throw audit.error;
 
 let report;

@@ -39,8 +39,13 @@ export const auditFailures = (report, allowlist, today) => {
   const failures = [];
   const allowed = new Set();
   for (const entry of allowlist) {
-    if (today < entry.expires) allowed.add(entry.id);
-    else failures.push(`${entry.id} exception expired on ${entry.expires}. Fix the advisory, or review the exception and set a new date.`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.expires)) {
+      failures.push(`${entry.id} exception needs an expiry date in YYYY-MM-DD form, not ${entry.expires}.`);
+    } else if (today < entry.expires) {
+      allowed.add(entry.id);
+    } else {
+      failures.push(`${entry.id} exception expired on ${entry.expires}. Fix the advisory, or review the exception and set a new date.`);
+    }
   }
   for (const advisory of reportedAdvisories(report)) {
     if (blockingSeverities.has(advisory.severity) && !allowed.has(advisory.id)) failures.push(advisory.summary);
