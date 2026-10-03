@@ -1482,13 +1482,20 @@ older than its 5 second stale time. Core's house client turns that option off
 because `useDbSync` refetches on its own, and Vivary does not mount
 `useDbSync`. A failed refresh keeps the last answer. Past runs keeps its list,
 and a section shows "Could not load all automations." only for a list with no
-answer, the rule `useScheduledTriggerState` already follows. The hooks run
-only while the Automations tab is mounted. While the tab is visible it sends
-four list GETs every 30 seconds and a fifth while Details is open, and each
-list GET reads the owner's job rows. A refresh that lands while a pause,
-resume, or delete is saving can show the old value until that change's own
-refetch, one round trip later. The Edit, Run now, and Delete dialogs still
-keep the entry from when they opened.
+answer, the rule `useScheduledTriggerState` already follows. A refresh that
+fails after an answer shows a quiet note instead, from React Query's
+`isRefetchError`, and the next successful refresh clears it. The section shows
+"Could not refresh automations. The values shown may be out of date." Details
+shows "Could not refresh. These values may be out of date." when its own list
+or Past runs failed to refresh. A refresh that keeps failing keeps the note up
+while the values age. A LAST CHECKED far older than 90 seconds with the note
+shown means the local server stopped answering, not that the scheduler
+stopped. The hooks run only while the Automations tab is mounted. While the
+tab is visible it sends four list GETs every 30 seconds and a fifth while
+Details is open, and each list GET reads the owner's job rows. A refresh that
+lands while a pause, resume, or delete is saving can show the old value until
+that change's own refetch, one round trip later. The Edit, Run now, and Delete
+dialogs still keep the entry from when they opened.
 
 The Details dialog showed Open thread on a run with an error and a thread. The
 control sent Core's `agent-chat:open-thread` window event, which only Core's
@@ -1533,18 +1540,24 @@ interval is exactly 30 seconds, and none outlives the tab. Each of the three
 Details controls, the Manage menu item, the hidden row button, and the View
 details link, opens Details from closed on its automation and fetches the list
 again. Opening Details on a personal recurring job, an organization recurring
-job, and an organization automation fetches the list that holds each and shows
-that entry. The 30 second timer fetches the open automation's past runs again.
-Details closes when its automation leaves the list and stays closed when it
-returns. A personal and an organization automation with one name keep Details
-on the organization one while another entry moves ahead of it. Details closed
-with Close stays closed through the timer. A failed list refresh shows no load
-error and keeps the row and the Details values, and a failed runs refresh keeps
-the runs listed. A hidden window skips the timer, and a return refetches each
-list and the runs once they are stale. The first three failed on the patch
-before the fix. The review round's mutation table lists 27 mutations, each a
-rule of the fix reverted or broken alone in the installed Core, and each fails
-a named case.
+job, and an organization automation fetches the list that holds each and no
+other list, and shows that entry. The 30 second timer fetches the open
+automation's past runs again. Details closes when its automation leaves the
+list and stays closed when it returns. A personal and an organization
+automation with one name keep Details on the organization one while another
+entry moves ahead of it. Details closed with Close stays closed through the
+timer, which fetches no past runs. A failed list refresh shows no load error,
+keeps the row and the Details values, and shows the section note and the
+Details note until the next successful refresh clears both. A failed runs
+refresh keeps the runs listed and shows the Details note. A hidden window
+skips the timer, and a return refetches each list and the runs once they are
+stale. The first three failed on the patch before the fix. Each of 32
+mutations, one rule of the fix reverted or broken alone in the installed Core,
+fails a named case. They cover the snapshot, the key's makeup, each opener,
+the list each opener refetches and that it refetches no other, closing, Past
+runs stopping after Close, the key clearing on departure, each interval and its
+length, the refetch on return, both failed-refresh rules, the section note, and
+the Details note for its list and for Past runs.
 
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
@@ -1552,9 +1565,11 @@ Core's chat beside the page can open an unscoped thread. Remove the LAST
 CHECKED part when an upstream release reports the scheduler's check and passes
 the same test. Remove the Open thread part only when Vivary can open a run
 thread, by giving it a scope or a route that loads it, and the test expects
-the control. Upstream could take the #141 change as it is. Remove it when an
-upstream release keeps Details on the current list entry, refreshes the lists
-while the tab is open, and passes the twelve #141 cases.
+the control. Upstream could take the #141 identity, opener, interval, and
+failed-refresh rules. `refetchOnWindowFocus: true` fits only a client that
+does not mount `useDbSync`, which runs its own focus refetch. Remove the #141
+part when an upstream release keeps Details on the current list entry,
+refreshes the lists while the tab is open, and passes the twelve #141 cases.
 
 ## Automation runs at quit
 
