@@ -536,7 +536,13 @@ if (role === "preview-service-server") {
         const serverPid = await readPid("server-pid");
         if (serverPid && await isRunning(serverPid)) {
           if (nativeWindows) forceWindowsTree(serverPid);
-          else process.kill(serverPid, "SIGKILL");
+          else {
+            try {
+              process.kill(serverPid, "SIGKILL");
+            } catch (error) {
+              if (error.code !== "ESRCH") throw error;
+            }
+          }
           await until(async () => !await isRunning(serverPid), "fixture server cleanup completes");
         }
         if (nativeWindows) {

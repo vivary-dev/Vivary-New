@@ -32,10 +32,15 @@ def own_preview(cwd, argv):
         finally:
             stopped.set()
 
+    def before_resume():
+        if stopped.is_set():
+            raise RuntimeError("Preview host disconnected before command launch")
+
     threading.Thread(target=watch_host, daemon=True, name="preview-host-lifetime").start()
     scope = WindowsProcessScope.launch(
         argv, dict(os.environ), cwd=cwd, stdin=subprocess.DEVNULL,
         stdout=sys.stdout, stderr=sys.stderr, windows_hide=True,
+        before_resume=before_resume,
     )
     command_code = None
     try:

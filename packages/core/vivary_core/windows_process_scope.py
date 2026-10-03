@@ -97,6 +97,7 @@ class WindowsProcessScope:
         stdout: Any = subprocess.PIPE,
         stderr: Any = subprocess.PIPE,
         windows_hide: bool = False,
+        before_resume: Optional[Callable[[], None]] = None,
     ) -> "WindowsProcessScope":
         import ctypes
         from ctypes import wintypes
@@ -223,6 +224,8 @@ class WindowsProcessScope:
                 wintypes.HANDLE(int(process_handle)),
             ):
                 raise last_error("AssignProcessToJobObject")
+            if before_resume is not None:
+                before_resume()
             status = ntdll.NtResumeProcess(wintypes.HANDLE(int(process_handle)))
             if status != 0:
                 raise OSError(
