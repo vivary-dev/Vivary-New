@@ -72,8 +72,7 @@ async function deliver(provider, operation, { status = 202, mode = "production" 
     EMAIL_FROM: "Fixture <sender@example.test>",
   };
   state.records = [];
-  // guard:allow-test-env - Isolate the existing development logging fallback.
-  process.env.NODE_ENV = mode;
+  process.env.NODE_ENV = mode; // guard:allow-env-mutation - Isolates the existing development logging fallback.
   console.log = (...args) => { logs.push(args); };
   globalThis.fetch = async (url, options) => {
     const expected = provider === "resend" ? "https://api.resend.com/emails"
@@ -89,8 +88,8 @@ async function deliver(provider, operation, { status = 202, mode = "production" 
   } finally {
     globalThis.fetch = fetchBefore;
     console.log = logBefore;
-    if (modeBefore === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = modeBefore;
+    if (modeBefore === undefined) delete process.env.NODE_ENV; // guard:allow-env-mutation - Restores the mode.
+    else process.env.NODE_ENV = modeBefore; // guard:allow-env-mutation - Restores the mode.
     state.secrets = {};
     state.records = [];
   }
