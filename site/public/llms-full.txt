@@ -7513,11 +7513,18 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Contributor guide navigation. The architecture page links directly to the
+canonical Entire guide on GitHub because the documentation site does not
+publish that guide as a page. The site sync and failed built-link check
+showed that the relative link resolved to a missing architecture/ENTIRE.md
+route. This corrects documentation navigation; session recording, the
+historical upload hold and the product boundaries above are unchanged.
+
 Contributor session recording. The shared Entire settings route future approved
 Vivary checkpoints to the existing private recording repository and retain an
 automatic upload hold for the historical shared queue. Source remotes, branch
 roles, Native conversation storage and runtime ownership are unchanged. The
-[contributor guide](ENTIRE.md) distinguishes installed hooks, actual local capture
+[contributor guide](https://github.com/vivary-dev/vivary/blob/dev/docs/ENTIRE.md) distinguishes installed hooks, actual local capture
 and remote delivery, and requires a fresh session for previously disabled
 checkouts. Review used Entire 0.10.6 configuration, remote resolution and native
 checkpoint ref naming, plus metadata from an existing real checkpoint. The web
