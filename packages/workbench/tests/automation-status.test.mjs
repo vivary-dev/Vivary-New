@@ -274,7 +274,7 @@ async function buildProof({ source, sourcefile, entry, stubs }) {
 
 const importProof = code => import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 
-function installDom() {
+function installDom(origin = "http://127.0.0.1:3000") {
   const linkedom = createRequire(path.join(CORE, "package.json"))("linkedom");
   const view = linkedom.parseHTML("<!doctype html><html><body></body></html>");
   // React schedules through MessageChannel. Open ports keep Node alive, so the proof closes them.
@@ -285,7 +285,7 @@ function installDom() {
   const values = { window: view, self: view, document: view.document, navigator: view.navigator,
     HTMLElement: view.HTMLElement, Element: view.Element, Node: view.Node, Event: view.Event,
     CustomEvent: view.CustomEvent, EventTarget: view.EventTarget, MessageChannel: TrackedMessageChannel,
-    IS_REACT_ACT_ENVIRONMENT: true };
+    location: new URL(origin), IS_REACT_ACT_ENVIRONMENT: true };
   const replaced = Object.keys(values).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
   for (const [name, value] of Object.entries(values)) {
     Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
@@ -356,13 +356,12 @@ const settle = () => act(async () => {
 
 export async function mountJobsTab(rows) {
   const calls = new Map();
-  globalThis.__proofTransport = (action, params) => {
+  globalThis.__proofTransport = async (action, params) => {
     const key = params.scope ? action + " " + params.scope : action;
     calls.set(key, (calls.get(key) ?? 0) + 1);
     if (rows.failing?.includes(key)) {
-      const failure = new Error("The server did not answer.");
-      if (!rows.hold) throw failure;
-      return new Promise((resolve, reject) => { rows.release = () => reject(failure); });
+      if (rows.hold) await new Promise(resume => { rows.release = resume; });
+      if (rows.failing?.includes(key)) throw new Error("The server did not answer.");
     }
     if (action === "manage-automation" || action === "manage-recurring-job") {
       const lists = action === "manage-automation" ? rows : rows.jobs;
@@ -381,9 +380,10 @@ export async function mountJobsTab(rows) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  await act(async () => {
-    root.render(<QueryClientProvider client={client}><AgentJobsTab hideHeader /></QueryClientProvider>);
+  const showTab = shown => act(async () => {
+    root.render(<QueryClientProvider client={client}>{shown && <AgentJobsTab hideHeader />}</QueryClientProvider>);
   });
+  await showTab(true);
   await settle();
   return {
     calls: (action, scope) => calls.get(action + " " + scope) ?? 0,
@@ -414,7 +414,14 @@ export async function mountJobsTab(rows) {
       await settle();
     },
     async release() {
-      await act(async () => { rows.release(); });
+      const release = rows.release;
+      delete rows.release;
+      await act(async () => { release(); });
+      await settle();
+    },
+    async reopenTab() {
+      await showTab(false);
+      await showTab(true);
       await settle();
     },
     section(index) {
@@ -910,7 +917,69 @@ test("Past runs that never loaded keep their load error while a timed retry runs
   }
 });
 
-test("a change from the page is sent at once with no network, and a refused one rolls back", async t => {
+test("a list reopened with the tab after a failed load shows Loading, not the old load error", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const rows = { personal: [], organization: [], failing: ["list-automations personal"] };
+  const tab = await proof.mountJobsTab(rows);
+  const loadError = /Could not load all automations/;
+  try {
+    assert.match(tab.section(0).text, loadError, "a failed first load shows the load error");
+    rows.hold = true;
+    await tab.reopenTab();
+    assert.match(tab.section(0).text, /Loading/, "a list reopened with the tab shows Loading during its fetch");
+    assert.doesNotMatch(tab.section(0).text, loadError, "a reopened list shows no old load error");
+    await tab.release();
+    assert.match(tab.section(0).text, loadError, "a failed fetch after the reopen shows the load error");
+    assert.doesNotMatch(tab.section(0).text, /Loading/, "a failed fetch after the reopen shows no Loading");
+    await tab.reopenTab();
+    assert.match(tab.section(0).text, /Loading/, "a list reopened again shows Loading during its fetch");
+    assert.doesNotMatch(tab.section(0).text, loadError, "a list reopened again shows no old load error");
+    rows.personal = [afterTick];
+    rows.failing = [];
+    await tab.release();
+    assert.doesNotMatch(tab.section(0).text, loadError, "a successful fetch after the reopen shows no load error");
+    assert.doesNotMatch(tab.section(0).text, /Loading/, "a successful fetch after the reopen shows no Loading");
+    assert.equal(tab.section(0).rows, 1, "a successful fetch after the reopen lists the automation");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("Past runs reopened after a failed load show Loading, not the old load error", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const rows = { personal: [afterTick], organization: [], failing: ["list-automation-runs personal"] };
+  const tab = await proof.mountJobsTab(rows);
+  const loadError = /Could not load run history/;
+  try {
+    await tab.openDetails();
+    assert.match(tab.belowPastRuns(), loadError, "a failed runs load shows the load error");
+    await tab.closeDetails();
+    rows.hold = true;
+    await tab.openDetails();
+    assert.match(tab.belowPastRuns(), /Loading/, "reopened Details shows Loading under Past runs during its fetch");
+    assert.doesNotMatch(tab.belowPastRuns(), loadError, "reopened Details shows no old runs load error");
+    await tab.release();
+    assert.match(tab.belowPastRuns(), loadError, "a failed runs fetch after the reopen shows the load error");
+    assert.doesNotMatch(tab.belowPastRuns(), /Loading/, "a failed runs fetch after the reopen shows no Loading");
+    await tab.closeDetails();
+    await tab.openDetails();
+    assert.match(tab.belowPastRuns(), /Loading/, "Details reopened again shows Loading under Past runs");
+    assert.doesNotMatch(tab.belowPastRuns(), loadError, "Details reopened again shows no old runs load error");
+    rows.runs = [pastRun];
+    rows.failing = [];
+    await tab.release();
+    assert.doesNotMatch(tab.belowPastRuns(), loadError, "a successful runs fetch shows no load error");
+    assert.equal(tab.pastRuns(), 1, "a successful runs fetch lists the run");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a change from a page on this computer is sent at once with no network, and a refused one rolls back", async t => {
   const proof = await jobsTabProof();
   const restoreDom = installDom();
   const timers = proof.recordTimers();
@@ -947,6 +1016,58 @@ test("a change from the page is sent at once with no network, and a refused one 
     assert.equal(tab.dialogText(), "", "the Run now dialog closes once the run is sent");
   } finally {
     await tab.unmount();
+  }
+});
+
+test("a change from a page on another device waits with no network and is sent when the network returns", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom("https://vivary.example.test");
+  t.after(() => {
+    proof.resetOnline();
+    restoreDom();
+  });
+  const tab = await proof.mountJobsTab(everyList());
+  try {
+    for (const [entry, index, action] of [["a recurring job", 0, "manage-recurring-job"],
+      ["an automation", 1, "manage-automation"]]) {
+      await tab.online(false);
+      const sent = tab.calls(action, "personal");
+      await tab.toggle(index);
+      assert.equal(tab.calls(action, "personal"), sent, `pausing ${entry} with no network waits`);
+      assert.deepEqual(tab.switchState(index), { checked: "false", disabled: true },
+        `the switch shows ${entry} paused while its change waits`);
+      await tab.online(true);
+      assert.equal(tab.calls(action, "personal"), sent + 1, `pausing ${entry} is sent when the network returns`);
+      assert.deepEqual(tab.switchState(index), { checked: "false", disabled: false },
+        `the switch shows ${entry} paused and is free again once the change is sent`);
+    }
+    await tab.online(false);
+    const ran = tab.calls("run-automation-now", "personal");
+    await tab.click("Run now", 2);
+    await tab.click("Run now", -1);
+    assert.equal(tab.calls("run-automation-now", "personal"), ran, "Run now with no network waits");
+    await tab.online(true);
+    assert.equal(tab.calls("run-automation-now", "personal"), ran + 1, "Run now is sent when the network returns");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a change from a page served by localhost or [::1] is sent at once with no network", async t => {
+  const proof = await jobsTabProof();
+  t.after(proof.resetOnline);
+  for (const origin of ["http://localhost:8080", "http://[::1]:8080"]) {
+    const restoreDom = installDom(origin);
+    const tab = await proof.mountJobsTab(everyList());
+    try {
+      await tab.online(false);
+      const sent = tab.calls("manage-automation", "personal");
+      await tab.toggle(1);
+      assert.equal(tab.calls("manage-automation", "personal"), sent + 1, `a pause on ${origin} is sent at once`);
+    } finally {
+      await tab.unmount();
+      restoreDom();
+    }
   }
 });
 

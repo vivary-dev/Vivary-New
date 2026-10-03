@@ -3282,23 +3282,23 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..e36940d69ff3a0cc28ba95c6168e842d
 +                                    }) })) : (_jsx("ul", { className: "mt-2 divide-y divide-border/60 border-y border-border/60", children: runs.map((run) => (_jsxs("li", { className: "flex items-center gap-2 py-1.5 text-xs", children: [_jsx(RunStatusDot, { status: run.status }), _jsx("span", { className: "shrink-0 text-muted-foreground", children: formatTimestamp(run.startedAt) }), _jsx("span", { className: "shrink-0 font-medium", children: run.status }), run.error ? (_jsx("span", { className: "min-w-0 flex-1 truncate text-muted-foreground", title: run.error, children: run.error })) : (_jsx("span", { className: "min-w-0 flex-1" })), run.finishedAt ? (_jsxs("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: [Math.round((run.finishedAt - run.startedAt) / 1000), "s"] })) : null] }, run.id))) }))] })] })] }) }));
  }
 diff --git a/dist/client/agent-page/use-jobs.d.ts b/dist/client/agent-page/use-jobs.d.ts
-index 604724adefca2998c14f2a33a362b198aa3041bb..3d0dd108d416e13240bf4312a460a5a6d40dfc9b 100644
+index 604724adefca2998c14f2a33a362b198aa3041bb..8d40697aad1dbf1f7db188a0ee163dd9f83d3809 100644
 --- a/dist/client/agent-page/use-jobs.d.ts
 +++ b/dist/client/agent-page/use-jobs.d.ts
 @@ -84,6 +84,8 @@ export interface AutomationRun {
      error: string | null;
  }
  export type { ScheduledTriggerState, ScheduledTriggerStatus };
-+export declare function loadFailed(query: Pick<import("@tanstack/react-query").UseQueryResult, "data" | "errorUpdateCount">): boolean;
-+export declare function firstLoading(query: Pick<import("@tanstack/react-query").UseQueryResult, "isLoading" | "errorUpdateCount">): boolean;
++export declare function loadFailed(query: Pick<import("@tanstack/react-query").UseQueryResult, "data" | "isFetchedAfterMount">): boolean;
++export declare function firstLoading(query: Pick<import("@tanstack/react-query").UseQueryResult, "isLoading" | "isFetchedAfterMount">): boolean;
  /**
   * Deploy-scoped and fixed for the life of the process, so it is cached far
   * longer than the automation lists.
 diff --git a/dist/client/agent-page/use-jobs.js b/dist/client/agent-page/use-jobs.js
-index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..ba70ddddfcd6efed137a34316aa882ba0f24c059 100644
+index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..e1b09cd21ea7f7ee34caa3535180a5dc79252bbd 100644
 --- a/dist/client/agent-page/use-jobs.js
 +++ b/dist/client/agent-page/use-jobs.js
-@@ -6,6 +6,31 @@ function recurringParams(scope) {
+@@ -6,6 +6,40 @@ function recurringParams(scope) {
  function automationParams(scope) {
      return { scope: scope === "org" ? "organization" : "personal" };
  }
@@ -3308,29 +3308,38 @@ index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..ba70ddddfcd6efed137a34316aa882ba
 +// refetch while the page is hidden. refetchOnWindowFocus: true, set here
 +// against the house default, refetches data past its stale time when the page
 +// returns. Vivary does not mount useDbSync, which the house client's
-+// refetchOnWindowFocus: false assumes. networkMode: "always", on these queries
-+// and on the page's changes below, keeps requests going while the browser
-+// reports no network, because the server usually runs on this computer, and
-+// one that does not answer should fail and show a note or an error. It also
-+// turns off React Query's refetch on reconnect, so the queries set
-+// refetchOnReconnect: true to keep it.
++// refetchOnWindowFocus: false assumes. networkMode: "always" on these queries
++// keeps them fetching while the browser reports no network, because the server
++// usually runs on this computer, and one that does not answer should fail and
++// show a note. It also turns off React Query's refetch on reconnect, so the
++// queries set refetchOnReconnect: true to keep it.
 +const AUTOMATION_REFRESH_MS = 30_000;
++// Vivary #141: the page's changes ignore the browser's network flag only on a
++// page this computer serves, where the flag says nothing about the server. A
++// page opened from another device keeps React Query's default, which holds a
++// change while that device is offline and sends it when it reconnects.
++function changeNetworkMode() {
++    const hostname = typeof window === "undefined" ? "" : window.location.hostname;
++    return ["localhost", "127.0.0.1", "[::1]"].includes(hostname) ? { networkMode: "always" } : {};
++}
 +// Vivary #141: a failed refresh keeps the last answer, so only a query with no
 +// answer failed to load. A query whose refresh failed after an answer gets a
 +// quiet note instead (isRefetchError). React Query clears a query's error while
-+// it retries, so a query that never answered counts as failed from its first
-+// failure on, and its retry is not a first load that shows Loading. The lists
-+// and Past runs share these two rules.
++// it retries, and the cached query keeps its failures after Details closes or
++// the tab is left. So a query with no answer counts as failed once a fetch
++// since this mount has finished (isFetchedAfterMount), through its retries, and
++// before that it is loading, even when an earlier mount failed. The lists and
++// Past runs share these two rules.
 +export function loadFailed(query) {
-+    return !query.data && query.errorUpdateCount > 0;
++    return !query.data && query.isFetchedAfterMount;
 +}
 +export function firstLoading(query) {
-+    return query.isLoading && query.errorUpdateCount === 0;
++    return query.isLoading && !query.isFetchedAfterMount;
 +}
  /**
   * Deploy-scoped and fixed for the life of the process, so it is cached far
   * longer than the automation lists.
-@@ -21,16 +46,17 @@ export function useScheduledTriggerState() {
+@@ -21,16 +55,17 @@ export function useScheduledTriggerState() {
      return { kind: "loading" };
  }
  export function useRecurringJobs(scope) {
@@ -3346,27 +3355,27 @@ index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..ba70ddddfcd6efed137a34316aa882ba
      const params = recurringParams(scope);
      const queryKey = ["action", "list-recurring-jobs", params];
      return useActionMutation("manage-recurring-job", {
-+        networkMode: "always",
++        ...changeNetworkMode(),
          onMutate: async (variables) => {
              await queryClient.cancelQueries({ queryKey });
              const previous = queryClient.getQueryData(queryKey);
-@@ -59,6 +85,7 @@ export function useManageAutomation(scope) {
+@@ -59,6 +94,7 @@ export function useManageAutomation(scope) {
      const params = automationParams(scope);
      const queryKey = ["action", "list-automations", params];
      return useActionMutation("manage-automation", {
-+        networkMode: "always",
++        ...changeNetworkMode(),
          onMutate: async (variables) => {
              await queryClient.cancelQueries({ queryKey });
              const previous = queryClient.getQueryData(queryKey);
-@@ -85,6 +112,7 @@ export function useManageAutomation(scope) {
+@@ -85,6 +121,7 @@ export function useManageAutomation(scope) {
  export function useRunAutomationNow() {
      const queryClient = useQueryClient();
      return useActionMutation("run-automation-now", {
-+        networkMode: "always",
++        ...changeNetworkMode(),
          onSuccess: (_result, variables) => {
              const scope = variables.scope === "organization" ? "organization" : "personal";
              const name = variables.name ??
-@@ -118,6 +146,10 @@ export function useAutomationRuns(scope, name, active) {
+@@ -118,6 +155,10 @@ export function useAutomationRuns(scope, name, active) {
      };
      return useActionQuery("list-automation-runs", params, {
          staleTime: 5_000,
