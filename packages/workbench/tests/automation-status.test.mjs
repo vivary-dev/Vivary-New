@@ -500,12 +500,52 @@ test("the automation list refreshes while the Automations tab stays open", async
   try {
     await tab.openDetails();
     const fetched = tab.calls("list-automations", "personal");
+    const fetchedJobs = tab.calls("list-recurring-jobs", "personal");
     rows.personal = [afterTick];
     // The scheduler heartbeat moves every 60 seconds, so a 30 second refresh keeps LAST CHECKED within half a tick.
     await timers.fire(30_000);
     assert.ok(tab.calls("list-automations", "personal") > fetched,
       "a timer of 30 seconds or less fetches the personal automation list again while the tab stays open");
+    assert.ok(tab.calls("list-recurring-jobs", "personal") > fetchedJobs,
+      "a timer of 30 seconds or less fetches the personal recurring job list again too");
     assertDetailsShow(tab.details(), afterTick, "an open Details dialog after a timed refresh");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("past runs refresh while Details stays open", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const tab = await proof.mountJobsTab({ personal: [beforeTick], organization: [] });
+  try {
+    await tab.openDetails();
+    const fetched = tab.calls("list-automation-runs", "personal");
+    await timers.fire(30_000);
+    assert.ok(tab.calls("list-automation-runs", "personal") > fetched,
+      "a timer of 30 seconds or less fetches the open automation's past runs again, so they keep up with LAST RUN");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("Details closes when its automation leaves the list", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const rows = { personal: [beforeTick], organization: [] };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    await tab.openDetails();
+    assert.ok(tab.details(), "Details opens");
+    rows.personal = [];
+    await tab.setList("personal", []);
+    assert.equal(tab.details(), null, "Details closes once the list no longer holds its automation");
   } finally {
     await tab.unmount();
   }

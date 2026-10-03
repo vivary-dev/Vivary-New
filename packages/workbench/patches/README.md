@@ -1457,11 +1457,26 @@ heartbeat, so LAST CHECKED stops advancing while a process that died during its
 scan still holds the lease, for up to 10 minutes. Since issue #139 it keeps
 advancing while a scheduled run is in progress, because a sweep releases the
 lease when its scan ends, before its runs start, and writes no heartbeat when
-they end. See "Scheduler lease per scan". The Details dialog shows the list
-entry captured when it opened (`AgentJobsTab.js`), and the list query has no
-refresh interval, so LAST CHECKED in Details can lag behind the heartbeat until
-the Automations tab reloads. The packaged check on the unpublished `9e921ca0`
-package saw this right after a tick. This patch does not change that.
+they end. See "Scheduler lease per scan".
+
+Issue #141. The Details dialog showed the list entry captured when it opened,
+and nothing refreshed the lists while the Automations tab stayed open, so LAST
+CHECKED, NEXT RUN, LAST RUN, and LAST STATUS in Details could be minutes old.
+The packaged check on the unpublished `9e921ca0` package saw this right after a
+tick. `AgentJobsTab.js` now keeps the key of the open entry, its kind and
+resource id, which is also its row key. Each render looks the key up in the
+current lists, so Details shows what the lists hold now and closes when its
+entry leaves them. A resource id is the primary key of the `resources` table,
+so the key is unique across both scopes. Every Details control opens the dialog
+through one function that also refetches the list that holds the entry, so
+Details opens on current values. In `use-jobs.js`, `useRecurringJobs`,
+`useAutomations`, and `useAutomationRuns` refetch every 30 seconds. The
+scheduler heartbeat moves every 60 seconds, so LAST CHECKED in Details trails
+it by at most about 30 seconds. `useAutomationRuns` runs only while Details is
+open, and its refresh keeps Past runs consistent with LAST RUN. React Query
+skips an interval refetch while the page is hidden, and the hooks run only
+while the Automations tab is mounted. The Edit, Run now, and Delete dialogs
+still keep the entry from when they opened.
 
 The Details dialog showed Open thread on a run with an error and a thread. The
 control sent Core's `agent-chat:open-thread` window event, which only Core's
@@ -1497,13 +1512,25 @@ after the heartbeat keep their stored value, and a resumed automation shows
 the heartbeat. The first two failed on the patch before this round's fix. The
 other fixtures are backdated an hour, so they predate the heartbeat.
 
+Issue #141 added five cases to that file. They bundle Core's real
+`AgentJobsTab.js`, `AutomationDetailsDialog.js`, and `use-jobs.js`, run the
+hooks on React Query with a fake transport, and render the tab under linkedom.
+An open Details dialog follows new list data. Opening Details fetches its list
+again. A timer of 30 seconds or less fetches both personal lists again. The
+same timer fetches the open automation's past runs again. Details closes when
+its automation leaves the list. The first three failed on the patch before the
+fix. Each rule of the fix, reverted alone in the installed Core, fails one of
+the five.
+
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
 Core's chat beside the page can open an unscoped thread. Remove the LAST
 CHECKED part when an upstream release reports the scheduler's check and passes
 the same test. Remove the Open thread part only when Vivary can open a run
 thread, by giving it a scope or a route that loads it, and the test expects
-the control.
+the control. Upstream could take the #141 change as it is. Remove it when an
+upstream release keeps Details on the current list entry, refreshes the lists
+while the tab is open, and passes the five #141 cases.
 
 ## Automation runs at quit
 
@@ -1817,8 +1844,8 @@ server. That is not new. Before this change the sweep ignored a failed renewal,
 and the time window freed such a run the same way. A run does not abort when its
 renewal finds another holder. A process still runs at most eight scheduled jobs
 at once. Issue #140, a next run shown after a hard kill that passes with no run,
-now affects only the killed automation, for up to 10 minutes. The Details dialog
-still shows a copied LAST CHECKED (issue #141). Run now and scheduled runs now
+now affects only the killed automation, for up to 10 minutes. Issue #141 keeps
+LAST CHECKED in the Details dialog current. Run now and scheduled runs now
 write the health table before the running mark, so they need it writable. When
 the run lease cannot be taken because that write fails, the run does not start.
 A Run now ends as an automation worker failure, and a scheduled job stays due. A
