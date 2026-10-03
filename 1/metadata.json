@@ -3,19 +3,17 @@
   "checkpoint_id": "01M3ZWXT8HTGAZE64DMM5592VD",
   "session_id": "01a0ff1e-2084-7593-922c-a2f5df1d692a",
   "strategy": "manual-commit",
-  "created_at": "2026-10-03T13:05:22.8015975Z",
+  "created_at": "2026-10-03T15:50:06.4738608Z",
   "checkpoints_count": 1,
   "files_touched": null,
   "agent": "Codex",
   "model": "",
   "compact_transcript_start": 0,
   "token_usage": {
-    "input_tokens": 538695,
+    "input_tokens": 712044,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 33488000,
-    "output_tokens": 47299,
-    "api_call_count": 200
-  },
-  "kind": "agent_review",
-  "review_prompt": "# AGENTS.md instructions for C:\\Users\\jeffk\\AIS-OS\n\n<INSTRUCTIONS>\n# Codex global defaults\n\nRead the selected workspace's `AGENTS.md`; repository rules own branches, tests,\ndependencies, and delivery. Do not carry conventions between unrelated projects.\n\nExplain unfamiliar primitives when they affect Jeff's decision; otherwise be direct.\n\n## Efficient model use\n\n- When operating Claude Fable, use `efficient-fable`.\n- On a high-cost frontier model doing codebase-heavy work, use\n  `efficient-frontier`.\n- When long-running or parallel work needs usage checks, use\n  `stay-within-limits`.\n- Use `quick-recap` for final response status indicators.\n\n## Windows Defender\n\nPreserve Microsoft Defender. Never disable protection or add broad exclusions.\nAvoid encoded or giant inline PowerShell, download-and-execute patterns, and pasted\nsource blobs. Prefer bounded commands and reviewed script files.\n## Windows \"Open With\" safety\n\nTreat an unexpected Windows \"Open With\" or \"Pick an app\" prompt as a launcher bug, not a file-association request. Dismiss it. Never select \"Always,\" never choose Git Bash as a permanent handler, and never change file associations or related registry keys as a workaround. Trace the originating process, command, and path; fix the launcher or stale terminal environment instead. File-association or registry changes require Jeff's explicit approval for that exact change.\n\n--- project-doc ---\n\n# Jeff Kazzee's AIOS\n\nThis workspace is Jeff's personal AI operating system. One workspace, many\nruntimes, one direction: a one-person AI company.\n\n`CLAUDE.md` beside this file is a router that imports this file. It carries\nno policy, so edit only this file.\n\n## Read first\n\n1. `Brain/USER.md` is the canonical profile. Read it before acting on Jeff's\n   behalf.\n\n2. `WORKSHOP.md` is the law. Routing, autonomy, skills, design, writing, and\n   sourcing live there. This file does not restate it.\n\n3. The nearest `AGENTS.md` to your work.\n\n`C:\\Users\\jeffk\\AGENTS.md` is the machine baseline above all of this. Its\nSimplicity law applies here: one space, one law file, one index.\n\n## Where work goes\n\n- `Brain/` holds durable knowledge, and `Brain/SCHEMA.md` is the contract.\n\n- `content/` holds everything published under Jeff's name.\n\n- `career/` holds the job campaign, its trackers, and its ticket graph.\n\n- `projects/` holds every project, Jeff's own and the company's.\n\n- `working/` is scratch on a fourteen day clock. `archives/` holds retired\n  material, so move things there rather than deleting them.\n\n- `prompts/`, `zo/`, `dev/`, and `working/` each carry their own `AGENTS.md`.\n\n## The writing floor\n\nNo em dashes. No semicolons in prose. No marketing adjectives. The floor holds\nin chat replies and commit messages, not only in shipped files.\n\nContent published as Jeff loads the `jeff-voice` skill. Technical and\ninstructional prose loads `tech-writing`. Do not merge the two.\n\n## What stays with Jeff\n\nPer item, with no batch approvals: publishing, posting, scheduling, or sending\nanything external. Spending beyond the session. Deleting anything outside\n`working/`. Credential and security changes.\n\n## What is not filled\n\n`aios-intake.md` is answered through Q7 (2026-09-12) and `connections.md` is\npopulated from it, but four of its seven rows are not yet wired, so check a\nrow's mechanism before relying on it. `context/` is still empty. Do not cite it as a source.\n\nWhen a claim here looks aspirational, check it on disk before you rely on it.\n\n</INSTRUCTIONS>"
+    "cache_read_tokens": 38424448,
+    "output_tokens": 59356,
+    "api_call_count": 233
+  }
 }
