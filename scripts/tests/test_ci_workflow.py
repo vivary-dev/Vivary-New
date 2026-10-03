@@ -193,6 +193,11 @@ AUDIT = (
     "        run: node scripts/audit.mjs\n"
     "        working-directory: site\n"
 )
+SITE_TESTS = (
+    "      - name: site behavior and information architecture tests\n"
+    "        run: npm run test:site\n"
+    "        working-directory: site\n"
+)
 CONTRACT_TEST_COMMAND = "python scripts/tests/test_ci_workflow.py"
 SOURCE_NAVIGATION_CHECK_COMMAND = "python -B scripts/check-source-navigation.py --check"
 SOURCE_NAVIGATION_TEST_COMMAND = "python -B scripts/tests/test-source-navigation.py"
@@ -228,7 +233,7 @@ def test_real_workflow_passes_and_is_not_modified():
 
 
 def test_ci_contract_regression_suite_must_run():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         CONTRACT_TEST_COMMAND,
         "echo contract tests skipped",
     )
@@ -238,7 +243,7 @@ def test_ci_contract_regression_suite_must_run():
 
 
 def test_source_navigation_contract_must_run():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         SOURCE_NAVIGATION_CHECK_COMMAND,
         "echo source navigation check skipped",
         1,
@@ -249,7 +254,7 @@ def test_source_navigation_contract_must_run():
 
 
 def test_source_navigation_regressions_must_run():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         SOURCE_NAVIGATION_TEST_COMMAND,
         "echo source navigation tests skipped",
         1,
@@ -267,7 +272,7 @@ def _without_governed_command(workflow: str, command: str) -> str:
 
 def test_windows_governed_job_must_run_source_navigation_contract():
     workflow = _without_governed_command(
-        _workflow(INSTALL + AUDIT),
+        _workflow(INSTALL + AUDIT + SITE_TESTS),
         SOURCE_NAVIGATION_CHECK_COMMAND,
     )
     message = _run(workflow)
@@ -277,7 +282,7 @@ def test_windows_governed_job_must_run_source_navigation_contract():
 
 def test_windows_governed_job_must_run_source_navigation_regressions():
     workflow = _without_governed_command(
-        _workflow(INSTALL + AUDIT),
+        _workflow(INSTALL + AUDIT + SITE_TESTS),
         SOURCE_NAVIGATION_TEST_COMMAND,
     )
     message = _run(workflow)
@@ -287,14 +292,14 @@ def test_windows_governed_job_must_run_source_navigation_regressions():
 
 def test_repository_automation_guard_and_regressions_must_run():
     for command in (AUTOMATION_GUARD_COMMAND, AUTOMATION_TEST_COMMAND):
-        workflow = _workflow(INSTALL + AUDIT).replace(command, "echo skipped")
+        workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(command, "echo skipped")
         message = _run(workflow)
         assert message, f"CI must execute {command}"
         assert command in message
 
 
 def test_repository_automation_behavior_tests_must_run():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         AUTOMATION_BEHAVIOR_COMMAND,
         "echo behavior tests skipped",
     )
@@ -304,7 +309,7 @@ def test_repository_automation_behavior_tests_must_run():
 
 
 def test_release_artifact_contract_and_real_archives_must_run():
-    workflow = _workflow(INSTALL + AUDIT)
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
     for command in (
         "python -m pip install uv==0.11.21",
         ARTIFACT_TEST_COMMAND,
@@ -318,7 +323,7 @@ def test_release_artifact_contract_and_real_archives_must_run():
 
 
 def test_installed_route_parity_proofs_must_run():
-    workflow = _workflow(INSTALL + AUDIT)
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
     for command in (
         PARITY_TEST_COMMAND,
         PARITY_CHECK_COMMAND,
@@ -330,7 +335,7 @@ def test_installed_route_parity_proofs_must_run():
 
 
 def test_installed_command_surface_must_follow_route_parity():
-    reordered = _workflow(INSTALL + AUDIT).replace(
+    reordered = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         "      - name: packaged front door smoke\n"
         f"        run: {PARITY_CHECK_COMMAND}\n"
         "      - name: installed command surface\n"
@@ -347,7 +352,7 @@ def test_installed_command_surface_must_follow_route_parity():
 
 
 def test_windows_governed_job_must_prove_installed_route_parity():
-    workflow = _workflow(INSTALL + AUDIT)
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
     for command in (
         WINDOWS_PARITY_CHECK_COMMAND,
         WINDOWS_PARITY_CHARACTERIZE_COMMAND,
@@ -358,7 +363,7 @@ def test_windows_governed_job_must_prove_installed_route_parity():
 
 
 def test_windows_command_surface_must_follow_route_parity():
-    reordered = _workflow(INSTALL + AUDIT).replace(
+    reordered = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         f"          {WINDOWS_PARITY_CHECK_COMMAND}\n"
         "          if ($LASTEXITCODE -ne 0) { throw \"installed route parity failed\" }\n"
         f"          {WINDOWS_PARITY_CHARACTERIZE_COMMAND}\n",
@@ -373,7 +378,7 @@ def test_windows_command_surface_must_follow_route_parity():
 
 
 def test_wheelhouse_smoke_must_pin_the_installed_strato_version():
-    workflow = _workflow(INSTALL + AUDIT).replace(STRATO_PIN, "assert True", 1)
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(STRATO_PIN, "assert True", 1)
     message = _run(workflow)
     assert message, "the wheelhouse smoke must pin every routed component version"
     assert "vivary-strato" in message
@@ -411,7 +416,7 @@ def test_site_audit_in_later_job_does_not_satisfy_contract():
 
 
 def test_dispatch_requires_all_exact_context_inputs():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         "      head_sha:\n        required: true\n",
         "",
     )
@@ -421,7 +426,7 @@ def test_dispatch_requires_all_exact_context_inputs():
 
 
 def test_dispatch_must_validate_live_pr_head_and_base():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         'LIVE_HEAD=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)',
         'echo "validation skipped"',
     )
@@ -431,7 +436,7 @@ def test_dispatch_must_validate_live_pr_head_and_base():
 
 
 def test_dispatch_must_compare_live_head_and_base_to_inputs():
-    workflow = _workflow(INSTALL + AUDIT)
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
     for comparison in (
         'test "$LIVE_HEAD" = "$HEAD_SHA"',
         'test "$LIVE_BASE" = "$BASE_SHA"',
@@ -442,7 +447,7 @@ def test_dispatch_must_compare_live_head_and_base_to_inputs():
 
 
 def test_required_check_must_fail_closed_when_dispatch_validation_fails():
-    workflow = _workflow(INSTALL + AUDIT)
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
     for contract in (
         "    if: ${{ always() }}\n",
         "        if: needs.changes.result != 'success'\n",
@@ -454,7 +459,7 @@ def test_required_check_must_fail_closed_when_dispatch_validation_fails():
 
 
 def test_dispatch_base_sha_must_reach_diff_hygiene():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         "${{ inputs.base_sha || github.event.pull_request.base.sha || github.event.before }}",
         "${{ github.event.pull_request.base.sha || github.event.before }}",
     )
@@ -464,7 +469,7 @@ def test_dispatch_base_sha_must_reach_diff_hygiene():
 
 
 def test_dispatch_must_run_graph_review_gate():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         "github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'",
         "github.event_name == 'pull_request'",
     )
@@ -475,7 +480,7 @@ def test_dispatch_must_run_graph_review_gate():
 
 def test_workbench_jobs_must_wait_for_dispatch_validation():
     for job in ("workbench", "workbench-maintained"):
-        workflow = _workflow(INSTALL + AUDIT).replace(
+        workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
             f"  {job}:\n    needs: changes\n",
             f"  {job}:\n",
             1,
@@ -486,7 +491,7 @@ def test_workbench_jobs_must_wait_for_dispatch_validation():
 
 
 def test_maintained_workbench_checks_must_run_once_in_their_own_job():
-    workflow = _workflow(INSTALL + AUDIT)
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
     step = (
         "      - name: maintained workbench checks\n"
         f"        run: {MAINTAINED_CHECKS_COMMAND}\n"
@@ -509,7 +514,7 @@ def test_maintained_workbench_checks_must_run_once_in_their_own_job():
 
 
 def test_hldd_gate_and_regressions_must_run():
-    workflow = _workflow(INSTALL + AUDIT)
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS)
     for command in (
         "python scripts/tests/test_hldd.py",
         'python scripts/check_hldd.py --base "$BASE_SHA" --head "$HEAD_SHA"',
@@ -519,12 +524,51 @@ def test_hldd_gate_and_regressions_must_run():
 
 
 def test_hldd_must_use_the_actual_pr_head():
-    workflow = _workflow(INSTALL + AUDIT).replace(
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
         "HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha || github.sha }}",
         "HEAD_SHA: ${{ github.sha }}",
     )
     message = _run(workflow)
     assert message and "actual PR head" in message
+
+
+def test_minimal_workflow_passes():
+    assert _run(_workflow(INSTALL + AUDIT + SITE_TESTS)) is None
+
+
+def test_site_audit_step_must_have_no_other_keys():
+    for changed in (
+        AUDIT + "        continue-on-error: true\n",
+        AUDIT.replace("        run:", "        if: false\n        run:", 1),
+        AUDIT + "        shell: true {0}\n",
+        AUDIT + "        env:\n          NODE_OPTIONS: --import ./skip.mjs\n",
+        AUDIT.replace("node scripts/audit.mjs", "node scripts/audit.mjs || true", 1),
+    ):
+        message = _run(_workflow(INSTALL + changed + SITE_TESTS))
+        assert message, f"a changed audit step must fail: {changed!r}"
+        assert "no other keys" in message
+
+
+def test_site_job_must_not_continue_on_error():
+    workflow = _workflow(INSTALL + AUDIT + SITE_TESTS).replace(
+        "  site:\n    needs: changes\n",
+        "  site:\n    needs: changes\n    continue-on-error: true\n",
+        1,
+    )
+    message = _run(workflow)
+    assert message, "a site job that continues on error must fail"
+    assert "continue-on-error" in message
+
+
+def test_site_tests_step_must_run():
+    for site_steps in (
+        INSTALL + AUDIT,
+        INSTALL + AUDIT + SITE_TESTS.replace("npm run test:site", "echo skipped", 1),
+        INSTALL + AUDIT + SITE_TESTS + "        if: false\n",
+    ):
+        message = _run(_workflow(site_steps))
+        assert message, "a site job without its site test step must fail"
+        assert "npm run test:site" in message
 
 
 if __name__ == "__main__":

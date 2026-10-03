@@ -38,6 +38,16 @@ def job_block(text: str, name: str) -> str:
     return jobs[start:end]
 
 
+def step_block(job: str, name: str) -> str:
+    """Return the one step with this name, up to the next step, or "" when it is missing or repeated."""
+    marker = f"      - name: {name}\n"
+    if job.count(marker) != 1:
+        return ""
+    start = job.index(marker)
+    end = job.find("\n      - ", start)
+    return job[start : end if end != -1 else len(job)].rstrip()
+
+
 def main() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     changes_job = job_block(text, "changes")
@@ -85,8 +95,14 @@ def main() -> None:
     )
     strato_pin = 'assert version("vivary-strato") == "0.1.3"'
     site_install = "        run: npm ci\n        working-directory: site"
-    site_audit = (
+    site_audit_step = (
+        "      - name: audit high and critical site dependencies\n"
         "        run: node scripts/audit.mjs\n"
+        "        working-directory: site"
+    )
+    site_tests_step = (
+        "      - name: site behavior and information architecture tests\n"
+        "        run: npm run test:site\n"
         "        working-directory: site"
     )
     dispatched_base = (
@@ -257,16 +273,22 @@ def main() -> None:
         "site job must run npm ci in site exactly once",
     )
     require(
-        site_audit in site_job,
-        "site job must run node scripts/audit.mjs with working-directory: site",
+        step_block(site_job, "audit high and critical site dependencies") == site_audit_step,
+        "site job must run node scripts/audit.mjs with working-directory: site "
+        "in one audit step with no other keys",
     )
     require(
-        site_job.count(site_audit) == 1,
-        "site job must run the blocking high-severity audit exactly once",
-    )
-    require(
-        site_job.index(site_install) < site_job.index(site_audit),
+        site_job.index(site_install) < site_job.index(site_audit_step),
         "site dependency audit must follow the locked npm install",
+    )
+    require(
+        step_block(site_job, "site behavior and information architecture tests") == site_tests_step,
+        "site job must run npm run test:site with working-directory: site "
+        "in one site test step with no other keys",
+    )
+    require(
+        "continue-on-error" not in site_job,
+        "site job must not set continue-on-error",
     )
 
     print(f"{WORKFLOW}: CI workflow contract passed")

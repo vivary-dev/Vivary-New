@@ -153,41 +153,67 @@ hook or deployment status; merging its docs does not publish a website.
 
 ### Live npm advisory gate
 
-The site CI job runs `node scripts/audit.mjs` from `site/` immediately after
-`npm ci`. The script runs `npm audit --json`, and HIGH and CRITICAL advisories block the
-job unless a current exception covers them. Lower-severity findings remain
-visible without turning every advisory-database change into a release blocker. This
-is the selected threshold for [#232](https://github.com/vivary-dev/vivary-cli/issues/232):
-it catches release-threatening dependency defects while limiting unrelated CI churn.
+The site CI job runs `node scripts/audit.mjs` from `site/` immediately after `npm ci`.
+The script runs `npm audit --json --offline=false`, so an `offline` setting in an
+`.npmrc` file or the environment cannot empty the report. HIGH and CRITICAL advisories
+block the job unless a current exception covers them. Lower-severity findings don't
+block, and a passing run lists them, so they stay visible without turning every
+advisory-database change into a release blocker. This is the selected threshold for
+[#232](https://github.com/vivary-dev/vivary-cli/issues/232). It catches
+release-threatening dependency defects while limiting unrelated CI churn.
+
+The script also fails when npm's output is not a version 2 report, audited no
+dependencies, lacks the vulnerabilities object or an entry's `via` list, names a
+severity other than info, low, moderate, high, or critical, gives a package a severity
+that no advisory explains, or counts more or fewer high or critical packages than it
+lists.
 
 The audit reads live registry data, so a site-scoped PR can turn red without changing
 the lockfile. When that happens, a maintainer:
 
-1. checks `npm config get offline`, then reruns the audit from `site/` with online
-   advisory lookup (`npm audit --offline=false --audit-level=high`) and records the
-   advisory and affected dependency path;
-2. distinguishes a registry transport failure from a vulnerability result, retrying
-   the former without claiming the dependency state is green;
-3. opens a bounded dependency-remediation slice and reviews the resulting lockfile;
-4. reruns the audit, site behavior tests, build, and link check; and
-5. keeps the gate blocking until the reviewed remediation is green.
+1. Reruns `node scripts/audit.mjs` from `site/` and records the advisory and affected
+   dependency path. `npm audit --offline=false` lists every finding, including the
+   ones an exception covers.
+2. Distinguishes a registry transport failure from a vulnerability result, and retries
+   the former without claiming the dependency state is green.
+3. Opens a bounded dependency-remediation slice and reviews the resulting lockfile.
+4. Reruns the audit, site behavior tests, build, and link check.
+5. Keeps the gate blocking until the reviewed remediation is green.
 
 When no patched release exists and the advisory cannot reach a site visitor, a reviewed
-PR may add an exception to `allowedAdvisories` in `site/scripts/audit-policy.mjs`.
-Each entry names the GHSA id, the severity it was reviewed at, the reason in one
-sentence, the date it was added, and an expiry date at most 30 days later. The audit
-fails when an entry's added date is in the future, when its expiry falls more than 30
-days after that date, or when the advisory's severity rises past the reviewed one. On
-its expiry date the entry stops covering the advisory and fails the audit by itself, so
-someone must remove it or review it again and set new dates.
-The site behavior tests run `site/tests/audit.test.mjs` against recorded
-`npm audit --json` output.
+PR may add an exception to `allowedAdvisories` in `site/scripts/audit-policy.mjs` in
+place of steps 3 to 5. Each entry names the GHSA id, the package it covers, the
+severity it was reviewed at, the reason in one sentence, the date it was added, and an
+expiry date. Dates are UTC calendar dates in YYYY-MM-DD form, and the script compares
+them with the current UTC date. The audit fails unless every entry meets these rules:
+
+- The id is a GHSA id, and the package and the reason aren't empty.
+- Both dates are real calendar dates.
+- The reviewed severity is high or critical.
+- The added date isn't in the future.
+- The expiry falls no more than 30 days after the added date.
+- The current UTC date is before the expiry.
+
+An entry covers its advisory only in its own package and only up to the reviewed
+severity. The same GHSA id in another package, or at a higher severity, fails the
+audit. GHSA ids match in any letter case, and an advisory URL in another form matches
+no entry. An expired entry fails the audit even after its advisory is gone, so someone
+must remove it or review it again and set new dates.
+
+The site job runs only when a change touches `site/`, `docs/`, `README.md`,
+`CHANGELOG.md`, or `.github/workflows/ci.yml`, the paths the `changed paths` job
+checks. An expired entry fails the next change that touches one of those paths, not
+every PR. The site behavior tests run `site/tests/audit.test.mjs` against recorded
+`npm audit --json` output. On Windows the script starts `npm` through a shell, and the
+tests that stub `npm` are skipped.
 
 Do not add `continue-on-error`, skip the audit, weaken the threshold, add an exception
 outside the review above, or use a forced dependency rewrite to make an unrelated PR
-green. The historical red/green control is
-recorded in `CHANGELOG.md`; the CI workflow contract and its tests prevent the command,
-working directory, job boundary, or install-before-audit ordering from drifting.
+green. `CHANGELOG.md` records the historical red/green control. The CI workflow
+contract and its tests prevent the command, working directory, job boundary, or
+install-before-audit ordering from drifting. They also refuse any other key on the
+audit step, `continue-on-error` anywhere in the site job, and a site job without its
+`npm run test:site` step.
 
 ## 4. Make local CLI truth explicit before command smokes
 
