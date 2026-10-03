@@ -3011,10 +3011,16 @@ index ba0f88bc54bcdbc4103a857cd3e725e5b0f25090..a93c8008c7fead57e27f0b5f87540aa2
                  const pageOrigin = typeof window !== "undefined" && window.location?.origin
                      ? window.location.origin
 diff --git a/dist/client/agent-page/AgentJobsTab.js b/dist/client/agent-page/AgentJobsTab.js
-index 8faa0bc883197d5e0e03469947ef0854cbf671ab..10f458813478629232820cb7fd233ad777eeb427 100644
+index 8faa0bc883197d5e0e03469947ef0854cbf671ab..ca40f13b734faa7e779dcdca43d81badc13c851f 100644
 --- a/dist/client/agent-page/AgentJobsTab.js
 +++ b/dist/client/agent-page/AgentJobsTab.js
-@@ -6,6 +6,8 @@ import { AgentAskPopover } from "../AgentAskPopover.js";
+@@ -1,11 +1,13 @@
+ import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+ import { Button } from "@agent-native/toolkit/ui/button";
+ import { IconBolt, IconCalendarEvent, IconClock, IconAlertTriangle, IconChevronDown, IconEye, IconLoader2, IconPencil, IconPlayerPause, IconPlayerPlay, IconTrash, } from "@tabler/icons-react";
+-import { useState } from "react";
++import { useEffect, useState } from "react";
+ import { AgentAskPopover } from "../AgentAskPopover.js";
  import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "../components/ui/dialog.js";
  import { Popover, PopoverContent, PopoverTrigger, } from "../components/ui/popover.js";
  import { useFormatters, useT } from "../i18n.js";
@@ -3023,7 +3029,28 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..10f458813478629232820cb7fd233ad7
  import { automationCreationContext } from "../settings/AutomationsSection.js";
  import { AgentEmptyState } from "./AgentEmptyState.js";
  import { AgentTabFrame } from "./AgentTabFrame.js";
-@@ -100,11 +102,30 @@ function detailsFields(entry, t, formatDateTime, scheduleFiring) {
+@@ -13,7 +15,7 @@ import { AutomationDetailsDialog, } from "./AutomationDetailsDialog.js";
+ import { AutomationScheduleDialog } from "./AutomationScheduleDialog.js";
+ import { scheduleFiringFor, } from "./scheduled-trigger-state.js";
+ import { ScheduledTriggerNotice } from "./ScheduledTriggerNotice.js";
+-import { useAutomations, useManageAutomation, useManageRecurringJob, useRunAutomationNow, useRecurringJobs, useScheduledTriggerState, } from "./use-jobs.js";
++import { firstLoading, loadFailed, useAutomations, useManageAutomation, useManageRecurringJob, useRunAutomationNow, useRecurringJobs, useScheduledTriggerState, } from "./use-jobs.js";
+ function listRecurringJobs(jobs) {
+     return jobs.map((resource) => ({
+         kind: "recurring",
+@@ -28,6 +30,11 @@ function listAutomations(automations) {
+         triggerType: resource.triggerType,
+     }));
+ }
++// Vivary #141: a resource id is the primary key of Core's resources table, so
++// this key is unique across both scopes as well as within one list.
++function entryKey(entry) {
++    return `${entry.kind}:${entry.resource.id}`;
++}
+ function describeTrigger(entry, t) {
+     if (entry.kind === "automation" && entry.triggerType === "event") {
+         return t("jobs.automationEventDetails", {
+@@ -100,11 +107,30 @@ function detailsFields(entry, t, formatDateTime, scheduleFiring) {
          });
      }
      if (entry.kind === "automation" && entry.triggerType === "webhook") {
@@ -3055,7 +3082,119 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..10f458813478629232820cb7fd233ad7
      }
      fields.push({
          label: t("jobs.nextRun", { defaultValue: "Next run" }),
-@@ -347,7 +368,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+@@ -160,7 +186,9 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+         ? `agent-jobs:organization-create:${organizationId}`
+         : undefined;
+     const [deleteTarget, setDeleteTarget] = useState(null);
+-    const [detailsTarget, setDetailsTarget] = useState(null);
++    // Vivary #141: Details holds which entry is open, not a copy of it, so the
++    // dialog shows the list's current values and closes when the entry leaves.
++    const [detailsKey, setDetailsKey] = useState(null);
+     const [scheduleTarget, setScheduleTarget] = useState(null);
+     const [runTarget, setRunTarget] = useState(null);
+     const formatDateTime = (value) => {
+@@ -181,6 +209,24 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+         ...listRecurringJobs(organizationJobsQuery.data ?? []),
+         ...listAutomations(organizationAutomationsQuery.data ?? []),
+     ];
++    const detailsTarget = [...personalEntries, ...organizationEntries].find((entry) => entryKey(entry) === detailsKey);
++    // A departed entry closes Details for good, even if the same id returns.
++    useEffect(() => {
++        if (detailsKey && !detailsTarget)
++            setDetailsKey(null);
++    }, [detailsKey, detailsTarget]);
++    const listQueryFor = (entry) => {
++        const organization = entry.resource.scope === "organization";
++        return entry.kind === "automation"
++            ? organization ? organizationAutomationsQuery : personalAutomationsQuery
++            : organization ? organizationJobsQuery : personalJobsQuery;
++    };
++    // The lists refresh every 30 seconds, so opening Details also refetches the
++    // entry's list to open on current values.
++    const openDetails = (entry) => {
++        setDetailsKey(entryKey(entry));
++        void listQueryFor(entry).refetch();
++    };
+     const mutationPending = personalJobsMutation.isPending ||
+         personalAutomationsMutation.isPending ||
+         organizationJobsMutation.isPending ||
+@@ -206,7 +252,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+             personalJobsMutation.mutate(input, options);
+         }
+     };
+-    const renderSection = ({ title, description, entries, loading, errors, organization = false, }) => (_jsxs("section", { className: "space-y-4", children: [_jsxs("div", { className: "flex flex-wrap items-end justify-between gap-3", children: [_jsxs("div", { className: "min-w-0", children: [_jsx("h2", { className: "text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70", children: title }), _jsx("p", { className: "mt-2 max-w-2xl text-sm text-muted-foreground", children: description })] }), organization ? (_jsxs("div", { className: "flex flex-wrap items-center justify-end gap-2", children: [!canManageOrg ? (_jsx("span", { className: "text-xs text-muted-foreground", children: t("jobs.organizationMemberNote", {
++    const renderSection = ({ title, description, entries, loading, errors, refreshFailed, organization = false, }) => (_jsxs("section", { className: "space-y-4", children: [_jsxs("div", { className: "flex flex-wrap items-end justify-between gap-3", children: [_jsxs("div", { className: "min-w-0", children: [_jsx("h2", { className: "text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70", children: title }), _jsx("p", { className: "mt-2 max-w-2xl text-sm text-muted-foreground", children: description })] }), organization ? (_jsxs("div", { className: "flex flex-wrap items-center justify-end gap-2", children: [!canManageOrg ? (_jsx("span", { className: "text-xs text-muted-foreground", children: t("jobs.organizationMemberNote", {
+                                     defaultValue: "You can manage automations you created.",
+                                 }) })) : null, _jsx(AgentAskPopover, { context: organizationAutomationCreationContext(), draftScope: organizationDraftScope, prompt: t("jobs.organizationPrompt", {
+                                     defaultValue: "Create a shared organization automation that does this: ",
+@@ -216,6 +262,8 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+                                     defaultValue: "New automation",
+                                 }) })] })) : null] }), errors.length > 0 ? (_jsx("p", { className: "text-sm text-destructive", children: t("jobs.loadError", {
+                     defaultValue: "Could not load all automations.",
++                }) })) : null, refreshFailed ? (_jsx("p", { className: "text-sm text-muted-foreground", children: t("jobs.refreshError", {
++                    defaultValue: "Could not refresh automations. The values shown may be out of date.",
+                 }) })) : null, loading && entries.length === 0 ? (_jsxs("div", { className: "flex items-center gap-2 text-sm text-muted-foreground", "aria-busy": "true", children: [_jsx(IconLoader2, { className: "size-4 animate-spin" }), t("jobs.loading", { defaultValue: "Loading…" })] })) : entries.length === 0 && errors.length === 0 ? (_jsx(AgentEmptyState, { icon: IconCalendarEvent, title: organization
+                     ? t("jobs.organizationEmptyTitle", {
+                         defaultValue: "No organization automations yet",
+@@ -272,19 +320,19 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+                                                             : t("jobs.paused", { defaultValue: "Paused" }) }), resource.lastStatus ? (_jsx("span", { className: "rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground", children: resource.lastStatus })) : null] }), _jsx("p", { className: "mt-1 text-sm text-muted-foreground", children: triggerDescription }), _jsx("p", { className: "hidden", children: instructions }), lastRun || nextRun || lastCheck ? (_jsxs("div", { className: "hidden", children: [nextRun ? (_jsxs("span", { children: [t("jobs.nextRun", { defaultValue: "Next run" }), ":", " ", nextRun] })) : null, _jsxs("span", { children: [t("jobs.lastRun", { defaultValue: "Last run" }), ":", " ", lastRun ??
+                                                                 t("jobs.neverRan", { defaultValue: "Never" })] }), !lastRun && lastCheck ? (_jsxs("span", { children: [t("jobs.lastChecked", {
+                                                                 defaultValue: "Last checked",
+-                                                            }), ": ", lastCheck] })) : null] })) : null, resource.lastError ? (_jsxs("div", { className: "mt-2 flex items-start gap-1.5 text-[11px] text-destructive", children: [_jsx(IconAlertTriangle, { className: "mt-px size-3 shrink-0" }), _jsx("span", { className: "min-w-0 break-words", children: resource.lastError }), _jsx("button", { type: "button", className: "shrink-0 font-medium text-foreground underline-offset-4 hover:underline", onClick: () => setDetailsTarget(entry), children: t("jobs.viewDetails", {
++                                                            }), ": ", lastCheck] })) : null] })) : null, resource.lastError ? (_jsxs("div", { className: "mt-2 flex items-start gap-1.5 text-[11px] text-destructive", children: [_jsx(IconAlertTriangle, { className: "mt-px size-3 shrink-0" }), _jsx("span", { className: "min-w-0 break-words", children: resource.lastError }), _jsx("button", { type: "button", className: "shrink-0 font-medium text-foreground underline-offset-4 hover:underline", onClick: () => openDetails(entry), children: t("jobs.viewDetails", {
+                                                             defaultValue: "View details",
+                                                         }) })] })) : null] }), _jsxs("div", { className: "flex shrink-0 items-center gap-2", children: [resource.canUpdate ? (_jsx("button", { type: "button", role: "switch", "aria-checked": resource.enabled, "aria-label": resource.enabled
+                                                     ? "Pause automation"
+                                                     : "Resume automation", disabled: mutationPending, onClick: () => mutateEntry(entry, "update", {
+                                                     enabled: !resource.enabled,
+-                                                }), className: `relative h-5 w-9 rounded-full transition-colors disabled:opacity-50 ${resource.enabled ? "bg-primary" : "bg-muted"}`, children: _jsx("span", { className: `absolute top-0.5 size-4 rounded-full bg-background shadow-sm transition-transform ${resource.enabled ? "start-[18px]" : "start-0.5"}` }) })) : null, _jsxs(Popover, { children: [_jsx(PopoverTrigger, { asChild: true, children: _jsxs(Button, { type: "button", variant: "outline", size: "sm", className: "cursor-pointer gap-1 px-2.5 text-xs", children: ["Manage", _jsx(IconChevronDown, { className: "size-3.5" })] }) }), _jsxs(PopoverContent, { align: "end", className: "w-40 p-1", children: [_jsxs("button", { type: "button", onClick: () => setDetailsTarget(entry), className: "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent", children: [_jsx(IconEye, { className: "size-3.5" }), " Details"] }), resource.canUpdate ? (_jsxs(_Fragment, { children: [_jsxs("button", { type: "button", disabled: runAutomationMutation.isPending, onClick: () => setRunTarget(entry), className: "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent disabled:opacity-50", children: [_jsx(IconPlayerPlay, { className: "size-3.5" }), " Run now"] }), entry.triggerType === "schedule" ? (_jsxs("button", { type: "button", onClick: () => setScheduleTarget(entry), className: "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent", children: [_jsx(IconPencil, { className: "size-3.5" }), " Edit"] })) : null, _jsxs("button", { type: "button", onClick: () => setDeleteTarget(entry), className: "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-destructive hover:bg-destructive/10", children: [_jsx(IconTrash, { className: "size-3.5" }), " Delete"] })] })) : null] })] })] }), _jsxs("div", { className: "hidden", children: [_jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: "cursor-pointer px-2 text-xs", onClick: () => setDetailsTarget(entry), children: [_jsx(IconEye, { className: "size-3.5" }), t("jobs.details", { defaultValue: "Details" })] }), resource.canUpdate ? (_jsxs(_Fragment, { children: [_jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: "cursor-pointer px-2 text-xs", disabled: mutationPending || runAutomationMutation.isPending, onClick: () => setRunTarget(entry), children: [_jsx(IconPlayerPlay, { className: "size-3.5" }), t("jobs.runNow", { defaultValue: "Run now" })] }), entry.triggerType === "schedule" ? (_jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: "cursor-pointer px-2 text-xs", disabled: mutationPending, onClick: () => setScheduleTarget(entry), children: [_jsx(IconPencil, { className: "size-3.5" }), t("jobs.edit", { defaultValue: "Edit" })] })) : null, _jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: "cursor-pointer px-2 text-xs", disabled: mutationPending, onClick: () => mutateEntry(entry, "update", {
++                                                }), className: `relative h-5 w-9 rounded-full transition-colors disabled:opacity-50 ${resource.enabled ? "bg-primary" : "bg-muted"}`, children: _jsx("span", { className: `absolute top-0.5 size-4 rounded-full bg-background shadow-sm transition-transform ${resource.enabled ? "start-[18px]" : "start-0.5"}` }) })) : null, _jsxs(Popover, { children: [_jsx(PopoverTrigger, { asChild: true, children: _jsxs(Button, { type: "button", variant: "outline", size: "sm", className: "cursor-pointer gap-1 px-2.5 text-xs", children: ["Manage", _jsx(IconChevronDown, { className: "size-3.5" })] }) }), _jsxs(PopoverContent, { align: "end", className: "w-40 p-1", children: [_jsxs("button", { type: "button", onClick: () => openDetails(entry), className: "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent", children: [_jsx(IconEye, { className: "size-3.5" }), " Details"] }), resource.canUpdate ? (_jsxs(_Fragment, { children: [_jsxs("button", { type: "button", disabled: runAutomationMutation.isPending, onClick: () => setRunTarget(entry), className: "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent disabled:opacity-50", children: [_jsx(IconPlayerPlay, { className: "size-3.5" }), " Run now"] }), entry.triggerType === "schedule" ? (_jsxs("button", { type: "button", onClick: () => setScheduleTarget(entry), className: "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent", children: [_jsx(IconPencil, { className: "size-3.5" }), " Edit"] })) : null, _jsxs("button", { type: "button", onClick: () => setDeleteTarget(entry), className: "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-destructive hover:bg-destructive/10", children: [_jsx(IconTrash, { className: "size-3.5" }), " Delete"] })] })) : null] })] })] }), _jsxs("div", { className: "hidden", children: [_jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: "cursor-pointer px-2 text-xs", onClick: () => openDetails(entry), children: [_jsx(IconEye, { className: "size-3.5" }), t("jobs.details", { defaultValue: "Details" })] }), resource.canUpdate ? (_jsxs(_Fragment, { children: [_jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: "cursor-pointer px-2 text-xs", disabled: mutationPending || runAutomationMutation.isPending, onClick: () => setRunTarget(entry), children: [_jsx(IconPlayerPlay, { className: "size-3.5" }), t("jobs.runNow", { defaultValue: "Run now" })] }), entry.triggerType === "schedule" ? (_jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: "cursor-pointer px-2 text-xs", disabled: mutationPending, onClick: () => setScheduleTarget(entry), children: [_jsx(IconPencil, { className: "size-3.5" }), t("jobs.edit", { defaultValue: "Edit" })] })) : null, _jsxs(Button, { type: "button", variant: "ghost", size: "sm", className: "cursor-pointer px-2 text-xs", disabled: mutationPending, onClick: () => mutateEntry(entry, "update", {
+                                                             enabled: !resource.enabled,
+                                                         }), children: [resource.enabled ? (_jsx(IconPlayerPause, { className: "size-3.5" })) : (_jsx(IconPlayerPlay, { className: "size-3.5" })), resource.enabled
+                                                                 ? t("jobs.pause", { defaultValue: "Pause" })
+                                                                 : t("jobs.resume", { defaultValue: "Resume" })] }), _jsx(Button, { type: "button", variant: "ghost", size: "icon", className: "size-8 cursor-pointer text-muted-foreground hover:text-destructive", "aria-label": t("jobs.delete", {
+                                                             defaultValue: "Delete",
+-                                                        }), onClick: () => setDeleteTarget(entry), children: _jsx(IconTrash, { className: "size-3.5" }) })] })) : null] })] }) }, `${entry.kind}:${resource.id}`));
++                                                        }), onClick: () => setDeleteTarget(entry), children: _jsx(IconTrash, { className: "size-3.5" }) })] })) : null] })] }) }, entryKey(entry)));
+                     }) }) }))] }));
+     const mutationError = personalJobsMutation.error ||
+         personalAutomationsMutation.error ||
+@@ -311,23 +359,27 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+                             defaultValue: "Scheduled, event-triggered, and webhook-triggered automations that run for you.",
+                         }),
+                         entries: personalEntries,
+-                        loading: personalJobsQuery.isLoading || personalAutomationsQuery.isLoading,
++                        loading: firstLoading(personalJobsQuery) || firstLoading(personalAutomationsQuery),
+                         errors: [
+-                            personalJobsQuery.error,
+-                            personalAutomationsQuery.error,
++                            loadFailed(personalJobsQuery),
++                            loadFailed(personalAutomationsQuery),
+                         ].filter(Boolean),
++                        refreshFailed: personalJobsQuery.isRefetchError ||
++                            personalAutomationsQuery.isRefetchError,
+                     }), _jsx("div", { className: "pt-2", children: renderSection({
+                             title: t("jobs.organization", { defaultValue: "Organization" }),
+                             description: t("jobs.organizationDescription", {
+                                 defaultValue: "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
+                             }),
+                             entries: organizationEntries,
+-                            loading: organizationJobsQuery.isLoading ||
+-                                organizationAutomationsQuery.isLoading,
++                            loading: firstLoading(organizationJobsQuery) ||
++                                firstLoading(organizationAutomationsQuery),
+                             errors: [
+-                                organizationJobsQuery.error,
+-                                organizationAutomationsQuery.error,
++                                loadFailed(organizationJobsQuery),
++                                loadFailed(organizationAutomationsQuery),
+                             ].filter(Boolean),
++                            refreshFailed: organizationJobsQuery.isRefetchError ||
++                                organizationAutomationsQuery.isRefetchError,
+                             organization: true,
+                         }) }), mutationError ? (_jsx("p", { className: "text-sm text-destructive", children: mutationError.message ||
+                             t("jobs.updateError", {
+@@ -347,7 +399,7 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
                      if (!open && !runAutomationMutation.isPending)
                          setRunTarget(null);
                  }, children: _jsxs(DialogContent, { children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: t("jobs.runNowTitle", { defaultValue: "Run automation now?" }) }), _jsx(DialogDescription, { children: t("jobs.runNowDescription", {
@@ -3064,11 +3203,33 @@ index 8faa0bc883197d5e0e03469947ef0854cbf671ab..10f458813478629232820cb7fd233ad7
                                      }) })] }), runAutomationMutation.error ? (_jsx("p", { className: "text-sm text-destructive", children: runAutomationMutation.error.message })) : null, _jsxs(DialogFooter, { children: [_jsx(Button, { type: "button", variant: "outline", className: "cursor-pointer", disabled: runAutomationMutation.isPending, onClick: () => setRunTarget(null), children: t("jobs.cancel", { defaultValue: "Cancel" }) }), _jsxs(Button, { type: "button", className: "cursor-pointer", disabled: runAutomationMutation.isPending, onClick: () => {
                                          if (!runTarget)
                                              return;
+@@ -359,5 +411,5 @@ export function AgentJobsTab({ canManageOrg = false, hideHeader = false, organiz
+                     ? detailsTarget.resource.condition
+                     : null, instructions: detailsTarget.kind === "automation"
+                     ? detailsTarget.resource.body
+-                    : detailsTarget.resource.instructions, mcpTools: detailsTarget.resource.mcpTools ?? [], lastError: detailsTarget.resource.lastError, formatTimestamp: (value) => formatDateTime(new Date(value).toISOString()) ?? String(value), onClose: () => setDetailsTarget(null) })) : null, scheduleTarget ? (_jsx(AutomationScheduleDialog, { open: true, name: scheduleTarget.resource.name, schedule: scheduleTarget.resource.schedule ?? "", timezone: scheduleTarget.resource.timezone ?? null, saving: mutationPending, error: mutationError ? mutationError.message : null, scheduledTriggerState: scheduledTriggerState, onCancel: () => setScheduleTarget(null), onSave: (next) => mutateEntry(scheduleTarget, "update", next, () => setScheduleTarget(null)) })) : null] }));
++                    : detailsTarget.resource.instructions, mcpTools: detailsTarget.resource.mcpTools ?? [], lastError: detailsTarget.resource.lastError, refreshFailed: listQueryFor(detailsTarget).isRefetchError, formatTimestamp: (value) => formatDateTime(new Date(value).toISOString()) ?? String(value), onClose: () => setDetailsKey(null) })) : null, scheduleTarget ? (_jsx(AutomationScheduleDialog, { open: true, name: scheduleTarget.resource.name, schedule: scheduleTarget.resource.schedule ?? "", timezone: scheduleTarget.resource.timezone ?? null, saving: mutationPending, error: mutationError ? mutationError.message : null, scheduledTriggerState: scheduledTriggerState, onCancel: () => setScheduleTarget(null), onSave: (next) => mutateEntry(scheduleTarget, "update", next, () => setScheduleTarget(null)) })) : null] }));
+ }
+diff --git a/dist/client/agent-page/AutomationDetailsDialog.d.ts b/dist/client/agent-page/AutomationDetailsDialog.d.ts
+index 8404f4595011e858c4f47dcdda3d0d1c2d80dfce..3cf9f6cad9c0949c13dd77731e3196aaee2bc032 100644
+--- a/dist/client/agent-page/AutomationDetailsDialog.d.ts
++++ b/dist/client/agent-page/AutomationDetailsDialog.d.ts
+@@ -13,8 +13,9 @@ export interface AutomationDetailsDialogProps {
+     instructions: string;
+     mcpTools: string[];
+     lastError: string | null;
++    refreshFailed?: boolean;
+     scope: JobsScope;
+     formatTimestamp: (value: number) => string;
+     onClose: () => void;
+ }
+-export declare function AutomationDetailsDialog({ open, name, triggerSummary, fields, condition, instructions, mcpTools, lastError, scope, formatTimestamp, onClose, }: AutomationDetailsDialogProps): import("react").JSX.Element;
++export declare function AutomationDetailsDialog({ open, name, triggerSummary, fields, condition, instructions, mcpTools, lastError, refreshFailed, scope, formatTimestamp, onClose, }: AutomationDetailsDialogProps): import("react").JSX.Element;
 diff --git a/dist/client/agent-page/AutomationDetailsDialog.js b/dist/client/agent-page/AutomationDetailsDialog.js
-index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..8b960c7660e06a6c79876c30065c85a256438e01 100644
+index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..e36940d69ff3a0cc28ba95c6168e842d4e9e035a 100644
 --- a/dist/client/agent-page/AutomationDetailsDialog.js
 +++ b/dist/client/agent-page/AutomationDetailsDialog.js
-@@ -1,7 +1,5 @@
+@@ -1,10 +1,8 @@
  import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 -import { Button } from "@agent-native/toolkit/ui/button";
 -import { IconAlertTriangle, IconExternalLink, IconLoader2, } from "@tabler/icons-react";
@@ -3076,23 +3237,39 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..8b960c7660e06a6c79876c30065c85a2
 +import { IconAlertTriangle, IconLoader2, } from "@tabler/icons-react";
  import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, } from "../components/ui/dialog.js";
  import { useT } from "../i18n.js";
- import { useAutomationRuns } from "./use-jobs.js";
-@@ -17,6 +15,9 @@ function RunStatusDot({ status }) {
+-import { useAutomationRuns } from "./use-jobs.js";
++import { firstLoading, loadFailed, useAutomationRuns } from "./use-jobs.js";
+ function RunStatusDot({ status }) {
+     const tone = status === "success"
+         ? "bg-emerald-500"
+@@ -17,23 +15,29 @@ function RunStatusDot({ status }) {
                      : "bg-amber-500";
      return _jsx("span", { className: `size-1.5 shrink-0 rounded-full ${tone}` });
  }
+-export function AutomationDetailsDialog({ open, name, triggerSummary, fields, condition, instructions, mcpTools, lastError, scope, formatTimestamp, onClose, }) {
 +// Vivary #115: past runs offer no Open thread control. A run's thread has no
 +// chat scope, Vivary's chat history lists only scoped threads, and nothing on
 +// the Settings page handles the open request, so the control did nothing.
- export function AutomationDetailsDialog({ open, name, triggerSummary, fields, condition, instructions, mcpTools, lastError, scope, formatTimestamp, onClose, }) {
++export function AutomationDetailsDialog({ open, name, triggerSummary, fields, condition, instructions, mcpTools, lastError, refreshFailed, scope, formatTimestamp, onClose, }) {
      const t = useT();
      const runsQuery = useAutomationRuns(scope, open ? name : null, open);
-@@ -26,14 +27,9 @@ export function AutomationDetailsDialog({ open, name, triggerSummary, fields, co
++    // Vivary #141: Past runs refreshes every 30 seconds, and a failed refresh
++    // keeps the last answer, so the runs the owner was reading stay listed. A
++    // failed refresh of the entry's list notes the fields, and a failed refresh
++    // of Past runs notes Past runs alone.
+     const runs = runsQuery.data ?? [];
+     return (_jsx(Dialog, { open: open, onOpenChange: (next) => {
+             if (!next)
                  onClose();
-         }, children: _jsxs(DialogContent, { className: "max-h-[85vh] max-w-2xl overflow-y-auto", children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: name.replace(/-/g, " ") }), _jsx(DialogDescription, { children: triggerSummary })] }), _jsxs("div", { className: "space-y-4", children: [lastError ? (_jsxs("div", { className: "flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5", children: [_jsx(IconAlertTriangle, { className: "mt-0.5 size-4 shrink-0 text-destructive" }), _jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-xs font-medium text-destructive", children: t("jobs.blockedTitle", {
+-        }, children: _jsxs(DialogContent, { className: "max-h-[85vh] max-w-2xl overflow-y-auto", children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: name.replace(/-/g, " ") }), _jsx(DialogDescription, { children: triggerSummary })] }), _jsxs("div", { className: "space-y-4", children: [lastError ? (_jsxs("div", { className: "flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5", children: [_jsx(IconAlertTriangle, { className: "mt-0.5 size-4 shrink-0 text-destructive" }), _jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-xs font-medium text-destructive", children: t("jobs.blockedTitle", {
++        }, children: _jsxs(DialogContent, { className: "max-h-[85vh] max-w-2xl overflow-y-auto", children: [_jsxs(DialogHeader, { children: [_jsx(DialogTitle, { children: name.replace(/-/g, " ") }), _jsx(DialogDescription, { children: triggerSummary })] }), _jsxs("div", { className: "space-y-4", children: [refreshFailed ? (_jsx("p", { className: "text-xs text-muted-foreground", children: t("jobs.detailsRefreshError", {
++                                defaultValue: "Could not refresh. These values may be out of date.",
++                            }) })) : null, lastError ? (_jsxs("div", { className: "flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5", children: [_jsx(IconAlertTriangle, { className: "mt-0.5 size-4 shrink-0 text-destructive" }), _jsxs("div", { className: "min-w-0", children: [_jsx("p", { className: "text-xs font-medium text-destructive", children: t("jobs.blockedTitle", {
                                                  defaultValue: "This automation is not running",
 -                                            }) }), _jsx("p", { className: "mt-0.5 break-words text-xs text-muted-foreground", children: lastError })] })] })) : null, _jsx("dl", { className: "grid grid-cols-2 gap-x-4 gap-y-2", children: fields.map((field) => (_jsxs("div", { className: "min-w-0", children: [_jsx("dt", { className: "text-[11px] uppercase tracking-wide text-muted-foreground/70", children: field.label }), _jsx("dd", { className: `mt-0.5 break-words text-sm ${field.mono ? "font-mono text-xs" : ""}`, children: field.value })] }, field.label))) }), condition ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.condition", { defaultValue: "Condition" }) }), _jsx("p", { className: "mt-1 text-sm text-muted-foreground", children: condition })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.instructions", { defaultValue: "Instructions" }) }), _jsx("p", { className: "mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 p-2.5 text-sm text-muted-foreground", children: instructions })] }), mcpTools.length > 0 ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.mcpTools", { defaultValue: "Connected agent tools" }) }), _jsx("div", { className: "mt-1 flex flex-wrap gap-1.5", children: mcpTools.map((toolName) => (_jsx("code", { className: "rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground", children: toolName }, toolName))) })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.pastRuns", { defaultValue: "Past runs" }) }), runsQuery.isLoading ? (_jsxs("div", { className: "mt-2 flex items-center gap-2 text-xs text-muted-foreground", "aria-busy": "true", children: [_jsx(IconLoader2, { className: "size-3.5 animate-spin" }), t("jobs.loading", { defaultValue: "Loading…" })] })) : runsQuery.error ? (_jsx("p", { className: "mt-1 text-xs text-destructive", children: t("jobs.runsLoadError", {
-+                                            }) }), _jsx("p", { className: "mt-0.5 break-words text-xs text-muted-foreground", children: lastError })] })] })) : null, _jsx("dl", { className: "grid grid-cols-2 gap-x-4 gap-y-2", children: fields.map((field) => (_jsxs("div", { className: "min-w-0", children: [_jsx("dt", { className: "text-[11px] uppercase tracking-wide text-muted-foreground/70", children: field.label }), _jsx("dd", { className: `mt-0.5 break-words text-sm ${field.mono ? "font-mono text-xs" : ""}`, children: field.value })] }, field.label))) }), condition ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.condition", { defaultValue: "Condition" }) }), _jsx("p", { className: "mt-1 text-sm text-muted-foreground", children: condition })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.instructions", { defaultValue: "Instructions" }) }), _jsx("p", { className: "mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 p-2.5 text-sm text-muted-foreground", children: instructions })] }), mcpTools.length > 0 ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.mcpTools", { defaultValue: "Connected agent tools (automation runs cannot use these)" }) }), _jsx("div", { className: "mt-1 flex flex-wrap gap-1.5", children: mcpTools.map((toolName) => (_jsx("code", { className: "rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground", children: toolName }, toolName))) })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.pastRuns", { defaultValue: "Past runs" }) }), runsQuery.isLoading ? (_jsxs("div", { className: "mt-2 flex items-center gap-2 text-xs text-muted-foreground", "aria-busy": "true", children: [_jsx(IconLoader2, { className: "size-3.5 animate-spin" }), t("jobs.loading", { defaultValue: "Loading…" })] })) : runsQuery.error ? (_jsx("p", { className: "mt-1 text-xs text-destructive", children: t("jobs.runsLoadError", {
++                                            }) }), _jsx("p", { className: "mt-0.5 break-words text-xs text-muted-foreground", children: lastError })] })] })) : null, _jsx("dl", { className: "grid grid-cols-2 gap-x-4 gap-y-2", children: fields.map((field) => (_jsxs("div", { className: "min-w-0", children: [_jsx("dt", { className: "text-[11px] uppercase tracking-wide text-muted-foreground/70", children: field.label }), _jsx("dd", { className: `mt-0.5 break-words text-sm ${field.mono ? "font-mono text-xs" : ""}`, children: field.value })] }, field.label))) }), condition ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.condition", { defaultValue: "Condition" }) }), _jsx("p", { className: "mt-1 text-sm text-muted-foreground", children: condition })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.instructions", { defaultValue: "Instructions" }) }), _jsx("p", { className: "mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 p-2.5 text-sm text-muted-foreground", children: instructions })] }), mcpTools.length > 0 ? (_jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.mcpTools", { defaultValue: "Connected agent tools (automation runs cannot use these)" }) }), _jsx("div", { className: "mt-1 flex flex-wrap gap-1.5", children: mcpTools.map((toolName) => (_jsx("code", { className: "rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground", children: toolName }, toolName))) })] })) : null, _jsxs("div", { children: [_jsx("p", { className: "text-xs font-medium text-foreground", children: t("jobs.pastRuns", { defaultValue: "Past runs" }) }), runsQuery.isRefetchError ? (_jsx("p", { className: "mt-1 text-xs text-muted-foreground", children: t("jobs.runsRefreshError", {
++                                        defaultValue: "Could not refresh run history.",
++                                    }) })) : null, firstLoading(runsQuery) ? (_jsxs("div", { className: "mt-2 flex items-center gap-2 text-xs text-muted-foreground", "aria-busy": "true", children: [_jsx(IconLoader2, { className: "size-3.5 animate-spin" }), t("jobs.loading", { defaultValue: "Loading…" })] })) : loadFailed(runsQuery) ? (_jsx("p", { className: "mt-1 text-xs text-destructive", children: t("jobs.runsLoadError", {
                                          defaultValue: "Could not load run history.",
                                      }) })) : runs.length === 0 ? (_jsx("p", { className: "mt-1 text-xs text-muted-foreground", children: t("jobs.noRuns", {
                                          defaultValue: "This automation has not executed yet. Only real executions are recorded here.",
@@ -3103,6 +3280,111 @@ index fe6bfcd56b816bc126d776e14a4b9a1b30c8ab10..8b960c7660e06a6c79876c30065c85a2
 -                                                    onClose();
 -                                                }, children: [_jsx(IconExternalLink, { className: "size-3" }), "Open thread"] })) : null] }, run.id))) }))] })] })] }) }));
 +                                    }) })) : (_jsx("ul", { className: "mt-2 divide-y divide-border/60 border-y border-border/60", children: runs.map((run) => (_jsxs("li", { className: "flex items-center gap-2 py-1.5 text-xs", children: [_jsx(RunStatusDot, { status: run.status }), _jsx("span", { className: "shrink-0 text-muted-foreground", children: formatTimestamp(run.startedAt) }), _jsx("span", { className: "shrink-0 font-medium", children: run.status }), run.error ? (_jsx("span", { className: "min-w-0 flex-1 truncate text-muted-foreground", title: run.error, children: run.error })) : (_jsx("span", { className: "min-w-0 flex-1" })), run.finishedAt ? (_jsxs("span", { className: "shrink-0 tabular-nums text-muted-foreground", children: [Math.round((run.finishedAt - run.startedAt) / 1000), "s"] })) : null] }, run.id))) }))] })] })] }) }));
+ }
+diff --git a/dist/client/agent-page/use-jobs.d.ts b/dist/client/agent-page/use-jobs.d.ts
+index 604724adefca2998c14f2a33a362b198aa3041bb..8d40697aad1dbf1f7db188a0ee163dd9f83d3809 100644
+--- a/dist/client/agent-page/use-jobs.d.ts
++++ b/dist/client/agent-page/use-jobs.d.ts
+@@ -84,6 +84,8 @@ export interface AutomationRun {
+     error: string | null;
+ }
+ export type { ScheduledTriggerState, ScheduledTriggerStatus };
++export declare function loadFailed(query: Pick<import("@tanstack/react-query").UseQueryResult, "data" | "isFetchedAfterMount">): boolean;
++export declare function firstLoading(query: Pick<import("@tanstack/react-query").UseQueryResult, "isLoading" | "isFetchedAfterMount">): boolean;
+ /**
+  * Deploy-scoped and fixed for the life of the process, so it is cached far
+  * longer than the automation lists.
+diff --git a/dist/client/agent-page/use-jobs.js b/dist/client/agent-page/use-jobs.js
+index fabdbf2e838d8a147cb9e438cea8dcefeaf60006..e1b09cd21ea7f7ee34caa3535180a5dc79252bbd 100644
+--- a/dist/client/agent-page/use-jobs.js
++++ b/dist/client/agent-page/use-jobs.js
+@@ -6,6 +6,40 @@ function recurringParams(scope) {
+ function automationParams(scope) {
+     return { scope: scope === "org" ? "organization" : "personal" };
+ }
++// Vivary #141: Settings shows each automation's LAST CHECKED and NEXT RUN, and
++// the scheduler moves them every 60 seconds, so the lists and an open Details
++// dialog's past runs refresh at half that. React Query skips an interval
++// refetch while the page is hidden. refetchOnWindowFocus: true, set here
++// against the house default, refetches data past its stale time when the page
++// returns. Vivary does not mount useDbSync, which the house client's
++// refetchOnWindowFocus: false assumes. networkMode: "always" on these queries
++// keeps them fetching while the browser reports no network, because the server
++// usually runs on this computer, and one that does not answer should fail and
++// show a note. It also turns off React Query's refetch on reconnect, so the
++// queries set refetchOnReconnect: true to keep it.
++const AUTOMATION_REFRESH_MS = 30_000;
++// Vivary #141: the page's changes ignore the browser's network flag only on a
++// page this computer serves, where the flag says nothing about the server. A
++// page opened from another device keeps React Query's default, which holds a
++// change while that device is offline and sends it when it reconnects.
++function changeNetworkMode() {
++    const hostname = typeof window === "undefined" ? "" : window.location.hostname;
++    return ["localhost", "127.0.0.1", "[::1]"].includes(hostname) ? { networkMode: "always" } : {};
++}
++// Vivary #141: a failed refresh keeps the last answer, so only a query with no
++// answer failed to load. A query whose refresh failed after an answer gets a
++// quiet note instead (isRefetchError). React Query clears a query's error while
++// it retries, and the cached query keeps its failures after Details closes or
++// the tab is left. So a query with no answer counts as failed once a fetch
++// since this mount has finished (isFetchedAfterMount), through its retries, and
++// before that it is loading, even when an earlier mount failed. The lists and
++// Past runs share these two rules.
++export function loadFailed(query) {
++    return !query.data && query.isFetchedAfterMount;
++}
++export function firstLoading(query) {
++    return query.isLoading && !query.isFetchedAfterMount;
++}
+ /**
+  * Deploy-scoped and fixed for the life of the process, so it is cached far
+  * longer than the automation lists.
+@@ -21,16 +55,17 @@ export function useScheduledTriggerState() {
+     return { kind: "loading" };
+ }
+ export function useRecurringJobs(scope) {
+-    return useActionQuery("list-recurring-jobs", recurringParams(scope), { staleTime: 5_000 });
++    return useActionQuery("list-recurring-jobs", recurringParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true, refetchOnReconnect: true, networkMode: "always" });
+ }
+ export function useAutomations(scope) {
+-    return useActionQuery("list-automations", automationParams(scope), { staleTime: 5_000 });
++    return useActionQuery("list-automations", automationParams(scope), { staleTime: 5_000, refetchInterval: AUTOMATION_REFRESH_MS, refetchOnWindowFocus: true, refetchOnReconnect: true, networkMode: "always" });
+ }
+ export function useManageRecurringJob(scope) {
+     const queryClient = useQueryClient();
+     const params = recurringParams(scope);
+     const queryKey = ["action", "list-recurring-jobs", params];
+     return useActionMutation("manage-recurring-job", {
++        ...changeNetworkMode(),
+         onMutate: async (variables) => {
+             await queryClient.cancelQueries({ queryKey });
+             const previous = queryClient.getQueryData(queryKey);
+@@ -59,6 +94,7 @@ export function useManageAutomation(scope) {
+     const params = automationParams(scope);
+     const queryKey = ["action", "list-automations", params];
+     return useActionMutation("manage-automation", {
++        ...changeNetworkMode(),
+         onMutate: async (variables) => {
+             await queryClient.cancelQueries({ queryKey });
+             const previous = queryClient.getQueryData(queryKey);
+@@ -85,6 +121,7 @@ export function useManageAutomation(scope) {
+ export function useRunAutomationNow() {
+     const queryClient = useQueryClient();
+     return useActionMutation("run-automation-now", {
++        ...changeNetworkMode(),
+         onSuccess: (_result, variables) => {
+             const scope = variables.scope === "organization" ? "organization" : "personal";
+             const name = variables.name ??
+@@ -118,6 +155,10 @@ export function useAutomationRuns(scope, name, active) {
+     };
+     return useActionQuery("list-automation-runs", params, {
+         staleTime: 5_000,
++        refetchInterval: AUTOMATION_REFRESH_MS,
++        refetchOnWindowFocus: true,
++        refetchOnReconnect: true,
++        networkMode: "always",
+         enabled: active && Boolean(name),
+     });
  }
 diff --git a/dist/client/chat/message-components.d.ts b/dist/client/chat/message-components.d.ts
 index 78f2051e8470f1cbe1789520828320e1cb06e620..8f8a3958185a04f589097af88b42646c96f0dfcc 100644
@@ -7076,10 +7358,27 @@ index 0000000000000000000000000000000000000000..809916ffaea0d49365eb9e331ea2f313
 +    return restricted;
 +}
 diff --git a/dist/localization/default-messages.d.ts b/dist/localization/default-messages.d.ts
-index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..917696717d4c1a520a3a1f0799416e4179c84dd7 100644
+index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..413acab21262354f610d7c0f3ec064872d70605a 100644
 --- a/dist/localization/default-messages.d.ts
 +++ b/dist/localization/default-messages.d.ts
-@@ -742,6 +742,10 @@ declare const messages: {
+@@ -665,6 +665,7 @@ declare const messages: {
+         organizationMemberNote: string;
+         loading: string;
+         loadError: string;
++        refreshError: string;
+         organizationEmptyTitle: string;
+         organizationEmptyDescription: string;
+         organizationPrompt: string;
+@@ -684,6 +685,8 @@ declare const messages: {
+         blockedTitle: string;
+         pastRuns: string;
+         runsLoadError: string;
++        detailsRefreshError: string;
++        runsRefreshError: string;
+         noRuns: string;
+         edit: string;
+         editScheduleTitle: string;
+@@ -742,6 +745,10 @@ declare const messages: {
          webhookTrigger: string;
          webhookUrl: string;
          webhookUrlHint: string;
@@ -7091,10 +7390,27 @@ index 60b1ce55067992fe73d00cd50c236ec4cd3ad0e4..917696717d4c1a520a3a1f0799416e41
          deleteAutomationDescription: string;
          runNow: string;
 diff --git a/dist/localization/default-messages.js b/dist/localization/default-messages.js
-index a534663feca2ca8960b6782390c5a97f944c35b5..341f48649e7fae17714b0a68e29823b6527582f8 100644
+index a534663feca2ca8960b6782390c5a97f944c35b5..707b1a0e8b7e37597927b76f7bd7275559488921 100644
 --- a/dist/localization/default-messages.js
 +++ b/dist/localization/default-messages.js
-@@ -729,7 +729,7 @@ const messages = {
+@@ -671,6 +671,7 @@ const messages = {
+         organizationMemberNote: "You can manage automations you created.",
+         loading: "Loading…",
+         loadError: "Could not load all automations.",
++        refreshError: "Could not refresh automations. The values shown may be out of date.",
+         organizationEmptyTitle: "No organization automations yet",
+         organizationEmptyDescription: "Describe a scheduled, event-triggered, or webhook-triggered automation for this organization.",
+         organizationPrompt: "Create a shared organization automation that does this: ",
+@@ -690,6 +691,8 @@ const messages = {
+         blockedTitle: "This automation is not running",
+         pastRuns: "Past runs",
+         runsLoadError: "Could not load run history.",
++        detailsRefreshError: "Could not refresh. These values may be out of date.",
++        runsRefreshError: "Could not refresh run history.",
+         noRuns: "This automation has not executed yet. Only real executions are recorded here.",
+         edit: "Edit",
+         editScheduleTitle: "Edit schedule — {{name}}",
+@@ -729,7 +732,7 @@ const messages = {
          automationPrompt: "Create an automation that does this: ",
          cancel: "Cancel",
          instructions: "Instructions",
@@ -7103,7 +7419,7 @@ index a534663feca2ca8960b6782390c5a97f944c35b5..341f48649e7fae17714b0a68e29823b6
          automationEventTrigger: "On {{event}}",
          webhook: "Webhook",
          automationWebhookDetails: "Runs when a webhook is received.",
-@@ -748,17 +748,21 @@ const messages = {
+@@ -748,17 +751,21 @@ const messages = {
          webhookTrigger: "Webhook-triggered",
          webhookUrl: "Webhook URL",
          webhookUrlHint: "Paste this URL into a service that sends HTTP POST webhooks.",
