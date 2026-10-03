@@ -157,8 +157,9 @@ hook or deployment status; merging its docs does not publish a website.
 
 ### Live npm advisory gate
 
-The site CI job runs `npm audit --audit-level=high` from `site/` immediately after
-`npm ci`. HIGH and CRITICAL advisories block the job. Lower-severity findings remain
+The site CI job runs `node scripts/audit.mjs` from `site/` immediately after
+`npm ci`. The script runs `npm audit --json`, and HIGH and CRITICAL advisories block the
+job unless a current exception covers them. Lower-severity findings remain
 visible without turning every advisory-database change into a release blocker. This
 is the selected threshold for [#232](https://github.com/vivary-dev/vivary-cli/issues/232):
 it catches release-threatening dependency defects while limiting unrelated CI churn.
@@ -175,8 +176,17 @@ the lockfile. When that happens, a maintainer:
 4. reruns the audit, site behavior tests, build, and link check; and
 5. keeps the gate blocking until the reviewed remediation is green.
 
-Do not add `continue-on-error`, skip the audit, weaken the threshold, or use a forced
-dependency rewrite to make an unrelated PR green. The historical red/green control is
+When no patched release exists and the advisory cannot reach a site visitor, a reviewed
+PR may add an exception to `allowedAdvisories` in `site/scripts/audit-policy.mjs`.
+Each entry names the GHSA id, the reason in one sentence, and an expiry date 30 days
+after its review. On its expiry date the entry stops covering the advisory and fails
+the audit by itself, so someone must remove it or review it again and set a new date.
+The site behavior tests run `site/tests/audit.test.mjs` against recorded
+`npm audit --json` output.
+
+Do not add `continue-on-error`, skip the audit, weaken the threshold, add an exception
+outside the review above, or use a forced dependency rewrite to make an unrelated PR
+green. The historical red/green control is
 recorded in `CHANGELOG.md`; the CI workflow contract and its tests prevent the command,
 working directory, job boundary, or install-before-audit ordering from drifting.
 

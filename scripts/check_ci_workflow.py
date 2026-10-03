@@ -86,7 +86,7 @@ def main() -> None:
     strato_pin = 'assert version("vivary-strato") == "0.1.3"'
     site_install = "        run: npm ci\n        working-directory: site"
     site_audit = (
-        "        run: npm audit --audit-level=high\n"
+        "        run: node scripts/audit.mjs\n"
         "        working-directory: site"
     )
     dispatched_base = (
@@ -258,7 +258,7 @@ def main() -> None:
     )
     require(
         site_audit in site_job,
-        "site job must run npm audit --audit-level=high with working-directory: site",
+        "site job must run node scripts/audit.mjs with working-directory: site",
     )
     require(
         site_job.count(site_audit) == 1,

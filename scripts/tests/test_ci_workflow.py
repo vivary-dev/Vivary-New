@@ -190,7 +190,7 @@ INSTALL = (
 )
 AUDIT = (
     "      - name: audit high and critical site dependencies\n"
-    "        run: npm audit --audit-level=high\n"
+    "        run: node scripts/audit.mjs\n"
     "        working-directory: site\n"
 )
 CONTRACT_TEST_COMMAND = "python scripts/tests/test_ci_workflow.py"
@@ -382,7 +382,7 @@ def test_wheelhouse_smoke_must_pin_the_installed_strato_version():
 def test_missing_site_audit_gate_fails():
     message = _run(_workflow(INSTALL))
     assert message, "a workflow without the blocking audit must fail"
-    assert "npm audit --audit-level=high" in message
+    assert "node scripts/audit.mjs" in message
 
 
 def test_site_audit_must_follow_install():
@@ -407,7 +407,7 @@ def test_site_audit_in_later_job_does_not_satisfy_contract():
     )
     message = _run(_workflow(INSTALL, later_job))
     assert message, "an audit in another job must not satisfy the site contract"
-    assert "npm audit --audit-level=high" in message
+    assert "node scripts/audit.mjs" in message
 
 
 def test_dispatch_requires_all_exact_context_inputs():
