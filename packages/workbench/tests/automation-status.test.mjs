@@ -369,8 +369,8 @@ export async function mountJobsTab(rows) {
   await settle();
   return {
     calls: (action, scope) => calls.get(action + " " + scope) ?? 0,
-    async openDetails() {
-      const details = [...host.querySelectorAll("button")].find(button => button.textContent.trim() === "Details");
+    async openDetails(label = "Details", nth = 0) {
+      const details = [...host.querySelectorAll("button")].filter(button => button.textContent.trim() === label)[nth];
       await act(async () => { details.click(); });
       await settle();
     },
@@ -509,6 +509,24 @@ test("the automation list refreshes while the Automations tab stays open", async
     assert.ok(tab.calls("list-recurring-jobs", "personal") > fetchedJobs,
       "a timer of 30 seconds or less fetches the personal recurring job list again too");
     assertDetailsShow(tab.details(), afterTick, "an open Details dialog after a timed refresh");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("every Details control fetches the automation list again", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const failed = { ...beforeTick, lastError: "The tool failed. No delivery was confirmed." };
+  const tab = await proof.mountJobsTab({ personal: [failed], organization: [] });
+  try {
+    for (const [control, label, nth] of [["the Manage menu item", "Details", 0], ["the hidden row button", "Details", 1],
+      ["the View details link", "View details", 0]]) {
+      const fetched = tab.calls("list-automations", "personal");
+      await tab.openDetails(label, nth);
+      assert.ok(tab.calls("list-automations", "personal") > fetched, `${control} fetches the automation list again`);
+    }
   } finally {
     await tab.unmount();
   }

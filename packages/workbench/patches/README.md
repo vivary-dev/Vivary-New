@@ -1512,15 +1512,16 @@ after the heartbeat keep their stored value, and a resumed automation shows
 the heartbeat. The first two failed on the patch before this round's fix. The
 other fixtures are backdated an hour, so they predate the heartbeat.
 
-Issue #141 added five cases to that file. They bundle Core's real
+Issue #141 added six cases to that file. They bundle Core's real
 `AgentJobsTab.js`, `AutomationDetailsDialog.js`, and `use-jobs.js`, run the
 hooks on React Query with a fake transport, and render the tab under linkedom.
 An open Details dialog follows new list data. Opening Details fetches its list
-again. A timer of 30 seconds or less fetches both personal lists again. The
-same timer fetches the open automation's past runs again. Details closes when
-its automation leaves the list. The first three failed on the patch before the
-fix. Each rule of the fix, reverted alone in the installed Core, fails one of
-the five.
+again. A timer of 30 seconds or less fetches both personal lists again. Each of
+the three Details controls, the Manage menu item, the hidden row button, and
+the View details link, fetches the list again. The 30 second timer fetches the
+open automation's past runs again. Details closes when its automation leaves
+the list. The first three failed on the patch before the fix. Each rule of the
+fix, reverted alone in the installed Core, fails one of the six.
 
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
@@ -1530,7 +1531,7 @@ the same test. Remove the Open thread part only when Vivary can open a run
 thread, by giving it a scope or a route that loads it, and the test expects
 the control. Upstream could take the #141 change as it is. Remove it when an
 upstream release keeps Details on the current list entry, refreshes the lists
-while the tab is open, and passes the five #141 cases.
+while the tab is open, and passes the six #141 cases.
 
 ## Automation runs at quit
 
