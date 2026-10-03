@@ -2053,9 +2053,8 @@ seconds ago looks live, and a live run also delays the next occurrence.
 Staleness picks only the reason. It is `run` while the holder writes the row,
 and `stalled-run` once the holder stopped or for a mark with no lease.
 
-Every live scan holds the scheduler lease, so only a stale one is a wait, with
-the reason `scheduler`. For up to 90 seconds after a scanner dies during its
-scan, its lease looks live, and the list shows the next occurrence.
+Every live scan holds the scheduler lease for the seconds the scan takes, so
+only a stale scheduler lease is a wait, with the reason `scheduler`.
 
 The scheduler acts on a wait at the first tick at or after it ends, and a fresh
 launch first ticks 70 seconds in, so every wait clears within two ticks
@@ -2066,8 +2065,12 @@ wait. An earlier due time is hidden, including a stored future `nextRun` that an
 edit or a resume wrote during the wait. `resumesAfter` is the end of the wait
 for `stalled-run` and `scheduler`, and null for `run`. It is a bound, never a
 run time, because the tick that acts on the wait lands up to 70 seconds after
-it, so a run time computed from it could be one occurrence early. A failed lease
-read is logged, and both lists then report NEXT RUN as before this change.
+it, so a run time computed from it could be one occurrence early.
+
+A failed lease read is logged, and both lists then read as if no lease is held.
+A row with no running mark lists NEXT RUN as before this change. A `running`
+mark still waits on its run's time window, so a live run reads `stalled-run`
+until its time limit while the read fails.
 
 Details in `AgentJobsTab.js` shows the wait in NEXT RUN. A `run` wait reads
 "After the current run finishes". A `stalled-run` wait reads "Scheduling resumes
@@ -2086,12 +2089,27 @@ do, and `server/agent-chat-plugin.js` sets the scheduler timer with
 agent's `manage-automations list` and `jobs/tools.js` still return the stored
 `nextRun`.
 
-Under a dead scanner's lease, the scheduler runs an automation that came due
-during the wait at its first scan after the lease expires, on no occurrence.
+Three limits remain. First, for up to 90 seconds after a scanner dies during its
+scan, its lease looks like a live scan's, so the list shows the next occurrence,
+and that time can pass with no run while the lease holds. That falls short of
+the issue's first acceptance item for those 90 seconds. A live scan holds the
+lease for seconds, so counting a fresh scheduler lease as a wait would replace
+every scheduled row's next run with a wait during each scan.
+
+Second, under a dead scanner's lease, the scheduler runs an automation that came
+due during the wait at its first scan after the lease expires, on no occurrence.
 When the next occurrence lies more than two ticks past the lease expiry, as for
 an hourly or daily automation, the list shows that occurrence and not the
 catch-up run. A run stores the next occurrence after it finishes, so that time
 is still met unless the catch-up run is still in progress then.
+
+Third, a run that starts or ends between the two reads of one list request can
+list a `stalled-run` wait in that response, and the next refresh, 30 seconds
+later, corrects it. Neither read order removes this, because a run takes its
+lease before it writes its running mark and deletes the lease after it writes
+its outcome. `list-automations.js` reads the rows before the leases, so a run
+that ends between the reads shows a mark with no lease. `list-recurring-jobs.js`
+reads the leases first, so a run that starts between the reads shows the same.
 
 Run `node --test packages/workbench/tests/automation-quit.test.mjs` and `node
 --test packages/workbench/tests/automation-status.test.mjs`. The cases "the list
@@ -2102,23 +2120,27 @@ over `listedNextRun` at a fixed time covers an entry nothing blocks, a paused
 entry, a live run with an every-minute and an hourly schedule, stale run leases,
 a mark with no lease under the default and a longer run time limit, a mark with
 no start time, a paired host's mark a year out, a due time 30 seconds after a
-stale lease's expiry, a stored next run written during the wait, a lease written
-exactly and just over 90 seconds ago, a live and a dead scanner's lease, an
-hourly entry under a dead scanner, the later of two waits, and an event entry. A
-simulation resets a killed run's mark at every tick phase from 0 to 65 seconds
-in 5-second steps, for kill times around an occurrence and for every-minute,
-every-five-minute, hourly, and daily schedules. Each NEXT RUN it lists every 30
-seconds before the reset is null or the time the reset stores. Other status
-cases list a legacy job's wait, list the end of a 30-minute run time limit set
-by `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`, log a failed lease read and still
-list next runs, render the four strings and a row with no field in Details, and
-keep the no-scheduler string over a wait. In the quit file, a run lease aged
-three minutes lists `stalled-run` at the later of its expiry and `lastRun` plus
-10 minutes, and lists the stored next run once a tick resets the mark. A live
-run held by a child lists `run`, while an hourly automation under a live lease
-keeps its hour. A scheduler lease taken as a scan takes it changes no row. Under
-a dead scanner's lease, a due automation lists the wait, a paused one lists no
-next run and no wait, and an event automation lists as before.
+stale lease's expiry, a five-minute schedule due 70 seconds after one, which
+only the two-tick slack hides, a stored next run written during the wait, a
+lease written exactly and just over 90 seconds ago, a live and a dead scanner's
+lease, an hourly entry under a dead scanner, the later of two waits, and an
+event entry. A simulation resets a killed run's mark for every-minute,
+every-five-minute, hourly, and daily schedules and kill times 7 seconds apart
+around an occurrence. The reset lands at tick phases from 0 to 69 seconds after
+the wait ends, in 4.6-second steps, or 70 seconds after a launch that comes
+after the wait. Each NEXT RUN listed before the reset is null or the time the
+reset stores. A slack of one tick fails both the simulation and the five-minute
+row. Other status cases list a legacy job's wait, list the end of a 30-minute
+run time limit set by `AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS`, log a failed lease
+read and list as if no lease is held, render the four strings and a row with no
+field in Details, and keep the no-scheduler string over a wait. In the quit
+file, a run lease aged three minutes lists `stalled-run` at the later of its
+expiry and `lastRun` plus 10 minutes, and lists the stored next run once a tick
+resets the mark. A live run held by a child lists `run`, while an hourly
+automation under a live lease keeps its hour. A scheduler lease taken as a scan
+takes it changes no row. Under a dead scanner's lease, a due automation lists
+the wait, a paused one lists no next run and no wait, and an event automation
+lists as before.
 
 Upstream can take this change as it is. It adds `jobs/next-run.js`, exports to
 `scheduler-health.js`, and the `schedulerWait` field to both list actions, and

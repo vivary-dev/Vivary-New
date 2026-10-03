@@ -135,6 +135,10 @@ test("LAST CHECKED shows the scheduler's last check for an enabled legacy recurr
 
 test("a failed scheduler health read is logged, and each list falls back to the stored value", async () => {
   await heartbeats();
+  const markedAt = Date.now() - 60_000;
+  await defineAutomation(actor, { scope: "personal", name: "running-during-failure", body: "Summarize the project.",
+    triggerType: "schedule", schedule: "* * * * *", timezone: "UTC" });
+  await patchStored("running-during-failure", { lastStatus: "running", lastRun: iso(markedAt) });
   const warnings = [];
   const originalWarn = console.warn;
   console.warn = (...args) => { warnings.push(args.map(String).join(" ")); };
@@ -153,7 +157,11 @@ test("a failed scheduler health read is logged, and each list falls back to the 
   assert.equal(warnings.filter(line => /scheduler's last check/.test(line)).length, 2, "each list logged the failure");
   assert.equal(warnings.filter(line => /scheduler leases/.test(line)).length, 2, "each list logged the failed lease read");
   assert.deepEqual([Date.parse(lists.automations.hourly.nextRun) > Date.now(), lists.automations.hourly.schedulerWait],
-    [true, null], "the list names the next run as before #140");
+    [true, null], "a row with no running mark lists its next run as before #140");
+  const running = lists.automations["running-during-failure"];
+  assert.deepEqual([running.nextRun, running.schedulerWait],
+    [null, { reason: "stalled-run", resumesAfter: iso(markedAt + 10 * 60_000) }],
+    "a running mark still waits on its run's time window, as if no lease were held");
 });
 
 test("LAST CHECKED ignores a heartbeat whose check failed", async () => {
@@ -230,6 +238,8 @@ test("the list names a next run only when the scheduler can meet it", () => {
       waits("run")],
     ["a due time 30 s after a stale lease's expiry", everyMinute, { run: heldLease(10 * minute - 17_000, 17_000) },
       waits("stalled-run", at(14, 38, 30))],
+    ["a five-minute due time 70 s after a stale lease's expiry", { ...everyMinute, schedule: "*/5 * * * *" },
+      { run: heldLease(10 * minute - 37_000, 37_000) }, waits("stalled-run", at(14, 38, 50))],
     ["a stored next run an edit wrote during the wait", { ...runningMark, nextRun: at(14, 41) },
       { run: heldLease(3 * minute, 9.5 * minute) }, waits("stalled-run", at(14, 47, 43))],
     ["a lease written exactly 90 s ago", everyMinute, { run: heldLease(90_000, 8.5 * minute) }, waits("run")],
@@ -249,13 +259,14 @@ test("the list names a next run only when the scheduler can meet it", () => {
   }
 });
 
-// The tick that resets a killed run's mark lands at the first tick at or after the wait ends, up to 70 s later for a
-// fresh launch, so the list cannot know which phase it gets.
+// The tick that resets a killed run's mark lands up to 70 s after the wait ends for a launch during the wait, and
+// 70 s after a launch that comes later, so the list cannot know which tick it gets. The steps do not divide a minute,
+// so the wait ends and the phases fall at every offset from a minute boundary.
 test("a next run listed during a run's wait is the one the reset tick stores, at every tick phase", () => {
   const occurrence = Date.UTC(2026, 9, 4, 9, 0, 0);
   let checked = 0;
   for (const schedule of ["* * * * *", "*/5 * * * *", "0 * * * *", "0 9 * * *"]) {
-    for (let offset = -80_000; offset <= 80_000; offset += 10_000) {
+    for (let offset = -84_000; offset <= 84_000; offset += 7_000) {
       const killedAt = occurrence - 10 * minute + offset;
       const lastRun = killedAt - 20_000;
       const writtenAt = killedAt - 10_000;
@@ -264,18 +275,22 @@ test("a next run listed during a run's wait is the one the reset tick stores, at
         lastRun: iso(lastRun) };
       for (const leased of [true, false]) {
         const waitEnd = Math.max(leased ? expiresAt : -Infinity, lastRun + 10 * minute);
-        for (let phase = 0; phase < 70_000; phase += 5_000) {
-          const reset = waitEnd + phase;
+        const listings = [];
+        for (let phase = 0; phase < 70_000; phase += 4_600) {
+          for (let now = killedAt; now < waitEnd + phase; now += 37_000) listings.push([now, waitEnd + phase]);
+        }
+        for (let launch = waitEnd; launch < waitEnd + 3 * minute; launch += 13_000) {
+          listings.push([launch, launch + 70_000]);
+        }
+        for (const [now, reset] of listings) {
           const stores = nextOccurrence(schedule, new Date(reset), "UTC").toISOString();
-          for (let now = killedAt; now < reset; now += 30_000) {
-            const runs = leased && now < expiresAt ? new Map([[waitingKey, { writtenAt, expiresAt }]]) : new Map();
-            const { nextRun } = listedNextRun(meta, true, waitingKey,
-              { now, hardTimeoutMs: 10 * minute, scheduler: null, runs });
-            assert.ok(nextRun === null || nextRun === stores, `${schedule}, killed at ${iso(killedAt)}, ${leased
-              ? "leased" : "unleased"}, reset at ${iso(reset)}, listed at ${iso(now)}: ${nextRun}, the reset stores ${
-              stores}`);
-            checked += 1;
-          }
+          const runs = leased && now < expiresAt ? new Map([[waitingKey, { writtenAt, expiresAt }]]) : new Map();
+          const { nextRun } = listedNextRun(meta, true, waitingKey,
+            { now, hardTimeoutMs: 10 * minute, scheduler: null, runs });
+          assert.ok(nextRun === null || nextRun === stores, `${schedule}, killed at ${iso(killedAt)}, ${leased
+            ? "leased" : "unleased"}, reset at ${iso(reset)}, listed at ${iso(now)}: ${nextRun}, the reset stores ${
+            stores}`);
+          checked += 1;
         }
       }
     }

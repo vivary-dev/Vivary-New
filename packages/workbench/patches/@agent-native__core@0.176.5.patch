@@ -6094,10 +6094,10 @@ index ed81476fcde88609feb1e861346cf3baa10bce35..bf184155efb3bf1243c704685d6d5baa
  export { createJobTools } from "./tools.js";
 diff --git a/dist/jobs/next-run.d.ts b/dist/jobs/next-run.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..1edd55f917d2783013a4541b123d8a2506aa32b6
+index 0000000000000000000000000000000000000000..d4fb1fe10d3b873fd9c3d6357160a3f87d13414c
 --- /dev/null
 +++ b/dist/jobs/next-run.d.ts
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,35 @@
 +import type { JobFrontmatter } from "./frontmatter.js";
 +import type { HeldAutomationLease } from "./scheduler-health.js";
 +/**
@@ -6120,7 +6120,8 @@ index 0000000000000000000000000000000000000000..1edd55f917d2783013a4541b123d8a25
 +}
 +/**
 + * Vivary #140. The clock and the held leases one list request reads once. A
-+ * failed read is logged, and the list then reports next runs as before #140.
++ * failed read is logged and reads as no held lease, so a running mark still
++ * waits on its run's time window.
 + */
 +export declare function readScheduleView(appId?: string): Promise<ScheduleView>;
 +/**
@@ -6134,10 +6135,10 @@ index 0000000000000000000000000000000000000000..1edd55f917d2783013a4541b123d8a25
 +};
 diff --git a/dist/jobs/next-run.js b/dist/jobs/next-run.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..bf353ca13462cc869d17d3494ab3b2d8626af119
+index 0000000000000000000000000000000000000000..061074b94074a39d3fd5472af8b3bee244f774d0
 --- /dev/null
 +++ b/dist/jobs/next-run.js
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,105 @@
 +import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 +import { nextOccurrence } from "./cron.js";
 +import { AUTOMATION_LEASE_STALE_MS, AUTOMATION_SCHEDULER_TICK_MS, readHeldAutomationLeases, } from "./scheduler-health.js";
@@ -6149,7 +6150,8 @@ index 0000000000000000000000000000000000000000..bf353ca13462cc869d17d3494ab3b2d8
 +const WAIT_SLACK_MS = 2 * AUTOMATION_SCHEDULER_TICK_MS;
 +/**
 + * Vivary #140. The clock and the held leases one list request reads once. A
-+ * failed read is logged, and the list then reports next runs as before #140.
++ * failed read is logged and reads as no held lease, so a running mark still
++ * waits on its run's time window.
 + */
 +export async function readScheduleView(appId) {
 +    const now = Date.now();
