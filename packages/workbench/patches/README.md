@@ -1488,10 +1488,17 @@ server that cannot be reached then fails and shows a refresh note instead of
 pausing with no message. `useManageRecurringJob`, `useManageAutomation`, and
 `useRunAutomationNow` set `networkMode: "always"` too, so with no network a
 pause, resume, edit, delete, or Run now is sent at once instead of waiting for
-the connection, and a server that cannot be reached fails it with an error and
-a rollback. A failed refresh keeps the last answer. Past runs keeps its list,
-and a section shows "Could not load all automations." only for a list with no
-answer, the rule `useScheduledTriggerState` already follows. A refresh that
+the connection, and a server that cannot be reached fails it at once. A pause,
+resume, edit, or delete then rolls its list back and shows its error in the
+page's error line. Run now writes nothing before the answer, so it has nothing
+to roll back, and shows its error in its dialog and in the page's error line.
+A failed refresh keeps the last answer. Past runs keeps its list, and a
+section shows "Could not load all automations." only for a list with no
+answer, the rule `useScheduledTriggerState` already follows. The 30 second
+refresh also retries a list that never answered. React Query clears that
+list's error while each retry runs, so the tab counts a list with no answer
+and an earlier failure (`errorUpdateCount`) as failed. Its section keeps the
+load error during the retry instead of showing "Loading…". A refresh that
 fails after an answer shows a quiet note instead, from React Query's
 `isRefetchError`, and the next successful refresh clears it. The section shows
 "Could not refresh automations. The values shown may be out of date." Details
@@ -1547,7 +1554,7 @@ after the heartbeat keep their stored value, and a resumed automation shows
 the heartbeat. The first two failed on the patch before this round's fix. The
 other fixtures are backdated an hour, so they predate the heartbeat.
 
-Issue #141 added eighteen cases to that file. They bundle Core's real
+Issue #141 added nineteen cases to that file. They bundle Core's real
 `AgentJobsTab.js`, `AutomationDetailsDialog.js`, and `use-jobs.js`, run the
 hooks on React Query with a fake transport, and render the tab under linkedom.
 An open Details dialog follows new list data. Opening Details fetches its list
@@ -1573,27 +1580,32 @@ that job list fails, and an automation's Details shows none when only the job
 lists fail. A failed runs refresh keeps the runs listed, shows the Past runs
 note under its heading and no Details note, and the next successful runs
 refresh clears it. Each of the four lists, and Past runs, that fails its first
-load shows its load error and no refresh note. While the browser reports no
-network, the timer still fetches all four lists and the runs, and failed
-fetches still show the notes in both sections and in Details. With no
+load shows its load error and no refresh note. A list that never loaded keeps
+its load error and shows no "Loading…" while a timed retry is in flight and
+after it fails, and lists its rows once a retry succeeds. While the browser
+reports no network, the timer still fetches all four lists and the runs, and
+failed fetches still show the notes in both sections and in Details. With no
 network, a pause of a recurring job and of an automation is sent at once, its
-switch is free again once the change settles, and a refresh keeps the pause.
-Run now sends its run and closes its dialog. When the network returns, each of
-the four lists and the runs that went stale is fetched again. A hidden window
-skips the timer, and a return to the window refetches each of the four lists
-and the runs once they are stale. The first three failed on the patch before
-the fix. Each of 64 mutations, one rule of the fix reverted or broken alone in
-the installed Core, fails a named case. They cover the snapshot, the key's
-makeup, each opener, the list each opener refetches and that it refetches no
-other, closing, Past runs stopping after Close, the key clearing on departure,
-each interval and its length, the refetch on return, the refetch on
-reconnect, fetching in both scopes and sending each change hook's request
-while the browser reports no network, both failed-refresh rules, the section
-note for each list and only in its own section, the Details note for its own
-list only, a job's as well as an automation's, the Past runs note for its runs
-only and under its heading, the section note reading `isRefetchError` and not
-`isError` for each list, the Past runs note doing the same, and each note
-clearing on the next successful refresh.
+switch is free again once the change settles, and a refresh keeps the pause. A
+resume the server refuses rolls the switch back and shows its error on the
+page. Run now sends its run and closes its dialog. When the network returns,
+each of the four lists and the runs that went stale is fetched again. A hidden
+window skips the timer, and a return to the window refetches each of the four
+lists and the runs once they are stale. The first three failed on the patch
+before the fix. Each of 68 mutations, one rule of the fix reverted or broken
+alone in the installed Core, fails a named case. They cover the snapshot, the
+key's makeup, each opener, the list each opener refetches and that it
+refetches no other, closing, Past runs stopping after Close, the key clearing
+on departure, each interval and its length, the refetch on return, the
+refetch on reconnect, fetching in both scopes and sending each change hook's
+request while the browser reports no network, the rollback and error line of a
+change refused with no network, both failed-refresh rules, the load error
+staying and Loading staying off while a list that never loaded retries, the
+section note for each list and only in its own section, the Details note for
+its own list only, a job's as well as an automation's, the Past runs note for
+its runs only and under its heading, the section note reading
+`isRefetchError` and not `isError` for each list, the Past runs note doing the
+same, and each note clearing on the next successful refresh.
 
 Upstream could take the LAST CHECKED change as it is, because it changes only
 a read-only field. Removing Open thread is Vivary's choice: a host that mounts
@@ -1611,7 +1623,7 @@ restores what that option turns off. A hosted app would keep React Query's
 default, which pauses while the browser reports no network and refetches on
 reconnect. Remove the #141 part when an upstream release keeps Details on the
 current list entry, refreshes the lists while the tab is open, and passes the
-eighteen #141 cases.
+nineteen #141 cases.
 
 ## Automation runs at quit
 

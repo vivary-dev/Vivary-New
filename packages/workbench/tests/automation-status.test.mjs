@@ -357,7 +357,11 @@ export async function mountJobsTab(rows) {
   globalThis.__proofTransport = (action, params) => {
     const key = params.scope ? action + " " + params.scope : action;
     calls.set(key, (calls.get(key) ?? 0) + 1);
-    if (rows.failing?.includes(key)) throw new Error("The server did not answer.");
+    if (rows.failing?.includes(key)) {
+      const failure = new Error("The server did not answer.");
+      if (!rows.hold) throw failure;
+      return new Promise((resolve, reject) => { rows.release = () => reject(failure); });
+    }
     if (action === "manage-automation" || action === "manage-recurring-job") {
       const lists = action === "manage-automation" ? rows : rows.jobs;
       lists[params.scope] = lists[params.scope].map(row => (row.name === params.name
@@ -405,6 +409,10 @@ export async function mountJobsTab(rows) {
     async click(label, nth) {
       const button = [...host.querySelectorAll("button")].filter(button => button.textContent.trim() === label).at(nth);
       await act(async () => { button.click(); });
+      await settle();
+    },
+    async release() {
+      await act(async () => { rows.release(); });
       await settle();
     },
     section(index) {
@@ -837,7 +845,38 @@ test("the timed refresh keeps fetching and noting failures while the browser rep
   }
 });
 
-test("a change from the page is sent at once while the browser reports no network", async t => {
+test("a list that never loaded keeps its load error while a timed retry runs", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  const timers = proof.recordTimers();
+  t.after(() => {
+    timers.restore();
+    restoreDom();
+  });
+  const rows = { personal: [], organization: [], failing: ["list-automations personal"] };
+  const tab = await proof.mountJobsTab(rows);
+  const loadError = /Could not load all automations/;
+  try {
+    assert.match(tab.section(0).text, loadError, "a failed first load shows the load error");
+    rows.hold = true;
+    await timers.fire(30_000);
+    assert.match(tab.section(0).text, loadError, "the load error stays while a timed retry is in flight");
+    assert.doesNotMatch(tab.section(0).text, /Loading/, "a timed retry of a list that never loaded shows no Loading");
+    rows.hold = false;
+    await tab.release();
+    assert.match(tab.section(0).text, loadError, "the load error stays after the retry fails");
+    assert.doesNotMatch(tab.section(0).text, /Loading/, "a failed retry shows no Loading");
+    rows.personal = [afterTick];
+    rows.failing = [];
+    await timers.fire(30_000);
+    assert.doesNotMatch(tab.section(0).text, loadError, "a successful retry clears the load error");
+    assert.equal(tab.section(0).rows, 1, "a successful retry lists the automation");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("a change from the page is sent at once with no network, and a refused one rolls back", async t => {
   const proof = await jobsTabProof();
   const restoreDom = installDom();
   const timers = proof.recordTimers();
@@ -846,7 +885,8 @@ test("a change from the page is sent at once while the browser reports no networ
     timers.restore();
     restoreDom();
   });
-  const tab = await proof.mountJobsTab(everyList());
+  const rows = everyList();
+  const tab = await proof.mountJobsTab(rows);
   try {
     await tab.online(false);
     for (const [entry, index, action] of [["a recurring job", 0, "manage-recurring-job"],
@@ -859,6 +899,13 @@ test("a change from the page is sent at once while the browser reports no networ
       await timers.fire(30_000);
       assert.equal(tab.switchState(index).checked, "false", `a refresh after the change keeps ${entry} paused`);
     }
+    rows.failing = ["manage-automation personal"];
+    const sent = tab.calls("manage-automation", "personal");
+    await tab.toggle(1);
+    assert.equal(tab.calls("manage-automation", "personal"), sent + 1, "resuming with no network sends the change at once");
+    assert.deepEqual(tab.switchState(1), { checked: "false", disabled: false }, "a refused change rolls the switch back");
+    assert.match(tab.text(), /The server did not answer\./, "a refused change shows its error on the page");
+    rows.failing = [];
     const ran = tab.calls("run-automation-now", "personal");
     await tab.click("Run now", 2);
     await tab.click("Run now", -1);
