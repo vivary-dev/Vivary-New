@@ -4,7 +4,17 @@ Date: 2026-10-03. Issue: [#138](https://github.com/vivary-dev/vivary/issues/138)
 Tested runtime source: `d8cb7665a2d09a0ab46af137db25938ca0f23c8f`.
 Base: `c17a8cae993d6abb3a87c4949b2a047abb462224`.
 
-**Blocked: normal quit passes, but an unexpected server exit leaves an actual preview tree alive.** The [server-first P1](https://github.com/vivary-dev/vivary/pull/173#discussion_r4171749360) remains unresolved. This receipt is not merge or release acceptance.
+**Merge remains blocked pending native and packaged acceptance of the approved containment correction.** The last tested package passed normal quit but left an actual preview tree alive after unexpected server exit. The [server-first P1](https://github.com/vivary-dev/vivary/pull/173#discussion_r4171749360) remains unresolved. This receipt is not merge or release acceptance.
+
+## Approved containment implementation
+
+The owner approved the bounded Core reuse design on 2026-10-03. Workbench now starts one non-detached Python owner for each active Windows preview. It uses the bundled interpreter and Core's extracted Windows process scope. The scope creates the approved package manager suspended, assigns it to a kill-on-close job, and only then resumes it. Assignment failure aborts and reaps the suspended child. Existing package-manager arguments, reviewed folder, sanitized environment, raw stdout/stderr and empty manager stdin are preserved.
+
+The owner's stdin carries no messages. EOF, input failure or manager exit initiates cleanup. A zero owner exit means the job's active-process count reached zero within the cleanup deadline. Workbench observes child and stdin errors from spawn, closes the lifetime pipe on Stop, and uses the same cleanup promise for natural exit. A failed or unverified cleanup stays unavailable. Readiness, socket ancestry and the closed-port assertion retain their existing owners. The bundled runtime records the owner bridge's path, digest and license. No new dependency, service, host-security setting or control protocol was introduced.
+
+The new native tests retain the actual pnpm/cmd/preview/ordinary-child chain and add Stop and natural command exit alongside server death. The ancestry observer reads only process id, parent id and name, with a 15-second bound for a cold Windows provider. Required readiness, each real ancestry edge and the five-second no-survivors assertion are unchanged. Separate Core tests hold the Popen handle during the job-empty check and verify that failed job assignment never executes its suspended child. The documentation-head fa1af27c run timed out in its earlier five-second ancestry observer before termination, so it is not a second cleanup regression result.
+
+Independent review found no actionable blocker in the implementation. Zo checks passed: 12 capped-runner tests, 10 runtime packaging tests, 14 preview and isolation tests, Python syntax and diff hygiene. The actual TypeScript checker ran in the development environment with `--noEmit --pretty false --extendedDiagnostics` and exited zero after checking 3,369 files. The typecheck wrapper's earlier production-auth diagnostic is not counted as checker proof. The two native Core tests correctly skip on Linux. Native Windows CI and a fresh clean-source package remain pending. Historical observations below retain their original source boundaries.
 
 ## Candidate and normal quit
 
@@ -66,11 +76,9 @@ Independent review found no launch-option correction that preserves arbitrary su
 
 ## Remaining work and handoff
 
-The bounded wave ends at a reproduced source defect. Normal quit with an active real preview and active-preview cleanup after abrupt Electron loss were not run. The new P1 remains open. A clean earlier observation of idle parent loss cleared all seven package processes in 384.85 ms, but it does not establish either active-preview journey.
+The approved implementation must pass actual native Windows CI, including the held-handle and before-execution assignment checks. Then a fresh clean-source package must pass active-preview normal quit, abrupt Electron loss and server-first termination while Electron remains observable. Each journey must record the original process identities and the result before manual cleanup. Idle, schedule and webhook persistence, final CI, review and Entire gates remain required. The existing registered test root and its grants must be retained, with its original file hashes restored.
 
-The next owner must approve and review the containment design, use the committed failing regression before its source fix, and repeat the failed case with both preview processes gone while Electron remains observable. Preserve the original PID identities and record the outcome before any manual cleanup. Then rebuild the exact candidate and complete active-preview normal quit and parent-loss checks, along with normal automation persistence, final CI and review. The existing registered test root is usable. A native chooser is not the blocker. Its earlier POST-to-405 helper error was corrected to the supported GET route.
-
-All test processes and the external observer were closed. Private receipts, logs, script versions and checksums retain the observations. The controller owns the next source-fix and merge decision and the final supported local Entire capture refresh. The controller refreshed supported local capture through the 06:50 UTC pause. This later design wave needs its own final capture refresh. No merge, release, deployment or branch deletion occurred.
+Jeff rejected PR #176's temporary audit waiver. The separate dependency-remediation lane must supply a reviewed real fix, which must be integrated before final candidate gates. No waiver is supplied by this work. The controller owns the supported local session-capture refresh. Source mirroring does not establish session capture. No merge, release, deployment or branch deletion has occurred.
 
 ## Historical 5ce5468c acceptance
 

@@ -87,9 +87,13 @@ if (role === "preview-service-server") {
     acceptedManifestDigest: review.manifestDigest, reviewExpiresAt: review.reviewExpiresAt,
   }, owner);
   assert.equal(started.code, "ready", JSON.stringify(started));
-  process.send({ type: "ready", launcherPid: started.pid });
-  // The parent kills this actual service process. No shutdown hook or test timer may clean the preview.
-  process.on("message", () => {});
+  process.send({ type: "ready", rootPid: started.pid });
+  process.on("message", async message => {
+    if (message.type !== "stop-preview") return;
+    const result = await service.run({ operation: "stop", projectId: "preview-exit", launchId: started.launchId }, owner);
+    assert.equal(result.code, "stopped");
+    process.send({ type: "stopped" });
+  });
 } else if (role === "parent-loss-owner") {
   const directory = process.argv[3];
   const scenario = process.argv[4];
@@ -223,7 +227,8 @@ if (role === "preview-service-server") {
     }
   }
 } else {
-  test("Windows preview chain exits after its server dies", { skip: !nativeWindows, timeout: 30000 }, async t => {
+  for (const ending of ["server death", "Stop", "command exit"]) {
+  test("Windows preview chain cleanup after " + ending, { skip: !nativeWindows, timeout: 50000 }, async t => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "vivary-preview-server-exit-"));
     const receipt = path.join(directory, "preview-pids.json");
     const portServer = createServer();
@@ -241,7 +246,8 @@ if (role === "preview-service-server") {
     await writeFile(path.join(directory, "preview.mjs"), [
       "import { createServer } from 'node:http';",
       "import { spawn } from 'node:child_process';",
-      "import { writeFileSync } from 'node:fs';",
+      "import { existsSync, writeFileSync } from 'node:fs';",
+      "setInterval(() => { if (existsSync('exit-preview')) process.exit(0); }, 50).unref();",
       "const child = spawn(process.execPath, ['descendant.mjs'], { stdio: 'ignore', detached: false, windowsHide: true });",
       "child.once('spawn', () => {",
       "  writeFileSync('preview-pids.json', JSON.stringify({ preview: process.pid, shell: process.ppid, descendant: child.pid }));",
@@ -254,49 +260,77 @@ if (role === "preview-service-server") {
     });
     let stderr = "";
     let ready;
+    let stopped = false;
     let exited = false;
     server.stderr.on("data", chunk => { stderr += chunk; });
     server.once("exit", () => { exited = true; });
-    server.on("message", message => { if (message.type === "ready") ready = message; });
+    server.on("message", message => {
+      if (message.type === "ready") ready = message;
+      if (message.type === "stopped") stopped = true;
+    });
     let owned;
+    let managerPid;
     try {
       await until(() => ready || exited, "preview service starts the real package command: " + stderr, 15000);
       assert.equal(exited, false, stderr);
       owned = JSON.parse(await readFile(receipt, "utf8"));
-      const ids = [server.pid, ready.launcherPid, owned.shell, owned.preview, owned.descendant];
-      assert.equal(new Set(ids).size, 5, "the fixture has five distinct process owners");
-      assert.ok(ids.every(pid => Number.isSafeInteger(pid) && pid > 0 && isAlive(pid)));
-      // Read actual native ancestry, including the shell that the package manager inserted.
-      const filter = ids.map(pid => "ProcessId=" + pid).join(" OR ");
+      // Query only ancestry fields. A cold CI CIM provider may need more than five seconds.
       const ancestry = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-        "Get-CimInstance Win32_Process -Filter '" + filter + "' | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress",
-      ], { encoding: "utf8", timeout: 5000, windowsHide: true });
+        "$ErrorActionPreference = 'Stop'; Get-CimInstance -Query 'SELECT ProcessId,ParentProcessId,Name FROM Win32_Process' | ConvertTo-Json -Compress",
+      ], { encoding: "utf8", timeout: 15000, windowsHide: true });
       assert.equal(ancestry.status, 0, ancestry.error?.message || ancestry.stderr);
       const rows = new Map(JSON.parse(ancestry.stdout).map(row => [row.ProcessId, row]));
-      assert.equal(rows.get(ready.launcherPid)?.ParentProcessId, server.pid, "server owns the real pnpm process");
-      assert.equal(rows.get(owned.shell)?.ParentProcessId, ready.launcherPid, "pnpm owns the command shell");
+      managerPid = rows.get(owned.shell)?.ParentProcessId;
+      const ids = [server.pid, managerPid, owned.shell, owned.preview, owned.descendant];
+      // Preserve the original five-process red case while verifying the contained owner's extra edge.
+      if (ready.rootPid !== managerPid) {
+        ids.splice(1, 0, ready.rootPid);
+        assert.equal(rows.get(ready.rootPid)?.ParentProcessId, server.pid, "server owns the preview containment process");
+      }
+      assert.equal(new Set(ids).size, ids.length, "every process owner is distinct");
+      assert.ok(ids.every(pid => Number.isSafeInteger(pid) && pid > 0 && isAlive(pid)));
+      assert.equal(rows.get(managerPid)?.ParentProcessId, ready.rootPid === managerPid ? server.pid : ready.rootPid,
+        "the live preview owner owns the real pnpm process");
       assert.equal(rows.get(owned.shell)?.Name.toLowerCase(), "cmd.exe");
       assert.equal(rows.get(owned.preview)?.ParentProcessId, owned.shell, "cmd owns the actual preview");
       assert.equal(rows.get(owned.descendant)?.ParentProcessId, owned.preview, "preview owns its ordinary attached child");
-      assert.ok(server.kill("SIGKILL"), "terminate only the preview service server, without /T");
-      await until(() => exited, "server-only termination completes");
+      if (ending === "server death") {
+        assert.ok(server.kill("SIGKILL"), "terminate only the preview service server, without /T");
+        await until(() => exited, "server-only termination completes");
+      } else if (ending === "Stop") {
+        server.send({ type: "stop-preview" });
+        await until(() => stopped || exited, "Stop confirms owned job cleanup", 6000);
+        assert.equal(exited, false, stderr);
+        assert.equal(stopped, true);
+      } else {
+        await writeFile(path.join(directory, "exit-preview"), "");
+      }
+      const expectedGone = ending === "server death" ? ids : ids.filter(pid => pid !== server.pid);
       const deadline = Date.now() + 5000;
-      while (ids.some(isAlive) && Date.now() < deadline) await delay(25);
-      const surviving = ids.filter(isAlive);
-      t.diagnostic(JSON.stringify({ server: server.pid, launcher: ready.launcherPid, ...owned, surviving }));
+      while (expectedGone.some(isAlive) && Date.now() < deadline) await delay(25);
+      const surviving = expectedGone.filter(isAlive);
+      t.diagnostic(JSON.stringify({ ending, server: server.pid, root: ready.rootPid, manager: managerPid, ...owned, surviving }));
       // This assertion must happen before the finally block manually removes survivors.
-      assert.deepEqual(surviving, [], "server death must clean the actual pnpm/cmd/preview/ordinary-child chain");
+      assert.deepEqual(surviving, [], ending + " must clean the actual pnpm/cmd/preview/ordinary-child chain");
+      if (ending !== "server death") assert.ok(isAlive(server.pid), "the service remains alive after preview cleanup");
+      if (ending === "command exit") {
+        server.send({ type: "stop-preview" });
+        await until(() => stopped || exited, "natural exit retires the owned preview without killing a departed PID");
+        assert.equal(exited, false, stderr);
+        assert.equal(stopped, true);
+      }
     } finally {
       if (isAlive(server.pid)) forceWindowsTree(server.pid);
       if (!owned) owned = await readFile(receipt, "utf8").then(JSON.parse, () => undefined);
-      for (const pid of [ready?.launcherPid, owned?.shell, owned?.preview, owned?.descendant]) {
+      for (const pid of [ready?.rootPid, managerPid, owned?.shell, owned?.preview, owned?.descendant]) {
         if (pid && isAlive(pid)) forceWindowsTree(pid);
       }
-      await until(() => ![server.pid, ready?.launcherPid, owned?.shell, owned?.preview, owned?.descendant]
+      await until(() => ![server.pid, ready?.rootPid, managerPid, owned?.shell, owned?.preview, owned?.descendant]
         .some(pid => pid && isAlive(pid)), "fixture processes are gone after manual cleanup");
       await rm(directory, { recursive: true, force: true });
     }
   });
+  }
 
   for (const scenario of [
     "shutdown", "disconnect", "failure", "hosted", "windows-success",

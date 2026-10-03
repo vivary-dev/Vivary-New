@@ -156,7 +156,10 @@ export async function prepareOriginalRuntime({
     const components = await componentManifestEntries(wheelhouse, destination, target);
     await verifyComponentLicenses(destination, components);
     await writeOriginalRuntimeLauncher(destination, target);
-    const managedProjectBridge = await stageManagedProjectBridge(destination, repository);
+    const managedProjectBridge = await stageWorkbenchBridge(destination, repository,
+      "managed_project_workspace.py", "LICENSE.vivary-managed-project-bridge");
+    const previewOwnerBridge = await stageWorkbenchBridge(destination, repository,
+      "windows_preview_owner.py", "LICENSE.vivary-preview-owner");
     const aggregateLicensePath = await stageAggregateRuntimeLicense(destination, aggregateLicense);
 
     const componentLicensePaths = new Set(components.flatMap(component => component.licensePaths));
@@ -172,6 +175,7 @@ export async function prepareOriginalRuntime({
       sourceDirty,
       components,
       managedProjectBridge,
+      previewOwnerBridge,
       runtimeLicensePaths,
     });
     await writeFile(path.join(destination, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
@@ -241,6 +245,7 @@ export function createOriginalRuntimeManifest({
   sourceDirty,
   components,
   managedProjectBridge,
+  previewOwnerBridge,
   runtimeLicensePaths,
 }) {
   return {
@@ -255,6 +260,7 @@ export function createOriginalRuntimeManifest({
     runtimeLicenseAsset: { ...ORIGINAL_RUNTIME_LICENSE_ASSET },
     components: components.map(component => ({ ...component })),
     managedProjectBridge: { ...managedProjectBridge },
+    previewOwnerBridge: { ...previewOwnerBridge },
     runtimeLicensePaths: [...runtimeLicensePaths],
   };
 }
@@ -289,18 +295,18 @@ async function verifyComponentLicenses(destination, components) {
   }
 }
 
-export async function stageManagedProjectBridge(destination, repository) {
+export async function stageWorkbenchBridge(destination, repository, fileName, licenseName) {
   requireAbsolutePath(destination, "destination");
   requireAbsolutePath(repository, "repository");
-  const sourceBridge = path.join(repository, "packages", "workbench", "server", "managed_project_workspace.py");
+  const sourceBridge = path.join(repository, "packages", "workbench", "server", fileName);
   const sourceLicense = path.join(repository, "LICENSE");
   for (const source of [sourceBridge, sourceLicense]) {
     const metadata = await lstat(source);
-    if (!metadata.isFile()) throw new Error("Managed project bridge source must be a regular file.");
+    if (!metadata.isFile()) throw new Error("Workbench bridge source must be a regular file.");
   }
 
-  const bridgePath = path.join(destination, "bridge", "managed_project_workspace.py");
-  const licensePath = path.join(destination, "licenses", "LICENSE.vivary-managed-project-bridge");
+  const bridgePath = path.join(destination, "bridge", fileName);
+  const licensePath = path.join(destination, "licenses", licenseName);
   await Promise.all([mkdir(path.dirname(bridgePath), { recursive: true }), mkdir(path.dirname(licensePath), { recursive: true })]);
   await Promise.all([copyFile(sourceBridge, bridgePath), copyFile(sourceLicense, licensePath)]);
   return {
