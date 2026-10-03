@@ -23,6 +23,7 @@ import { createLocalCodeChatAdapter } from "../../lib/local-code-chat-adapter";
 import { useProjects } from "../projects/ProjectContext";
 import "@agent-native/toolkit/chat-history.css";
 import "../../local-agent.css";
+import mascotUrl from "../../assets/vivary-mascot.svg";
 
 import { previewInspectionContext, type PreviewChatTarget } from "@/lib/workbench-preview";
 
@@ -536,6 +537,7 @@ function LocalCodeConversation(props: LocalCodeConversationProps) {
     plusMenuMode="hidden" dynamicSuggestions={false} suggestions={[]}
     composerPlaceholder="Ask the agent to work in this workspace…"
     emptyStateAddon={<div className="local-agent-intro">
+      <img className="local-agent-mascot" src={mascotUrl} width={48} height={48} alt="" aria-hidden="true" />
       <h2>What are we working on?</h2>
       <p>Read files, make changes, and inspect the results in your workspace.</p>
       <Button variant="outline" size="sm" disabled={disabled} onClick={() => chatRef.current?.prefillMessage(example)}>Try a file change</Button>
