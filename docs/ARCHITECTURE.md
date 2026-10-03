@@ -244,6 +244,24 @@ No documentation route reads arbitrary host files.
 
 ## Last change review
 
+Contributor guide navigation. The architecture page links directly to the
+canonical Entire guide on GitHub because the documentation site does not
+publish that guide as a page. The site sync and failed built-link check
+showed that the relative link resolved to a missing architecture/ENTIRE.md
+route. This corrects documentation navigation; session recording, the
+historical upload hold and the product boundaries above are unchanged.
+
+Contributor session recording. The shared Entire settings route future approved
+Vivary checkpoints to the existing private recording repository and retain an
+automatic upload hold for the historical shared queue. Source remotes, branch
+roles, Native conversation storage and runtime ownership are unchanged. The
+[contributor guide](https://github.com/vivary-dev/vivary/blob/dev/docs/ENTIRE.md) distinguishes installed hooks, actual local capture
+and remote delivery, and requires a fresh session for previously disabled
+checkouts. Review used Entire 0.10.6 configuration, remote resolution and native
+checkpoint ref naming, plus metadata from an existing real checkpoint. The web
+link to a newly delivered private checkpoint remains to be verified. This changes
+development recording, not the product's persistence or access boundaries above.
+
 Issue #112, truthful BCC delivery. The maintained Core email action now passes its normalized BCC to the existing transport, whose Resend and SendGrid payloads carry it separately from visible recipients and content. The transport refuses a BCC send without a provider in both production and development. Provider rejection remains an action error. Native still owns email execution and provider selection, and unattended runs retain their local-only tool allowlist. Ten tests exercise the installed action, renderer and transport with synthetic credentials and a fake HTTP boundary. They cover both provider formats, blind-recipient privacy, omitted BCC, address lists and delivery errors. No real email was sent. The [patch notes](../packages/workbench/patches/README.md#email-bcc-delivery) describe the maintained contract and upstream removal condition.
 
 Approved mascot integration. CodeConversation's existing empty-state introduction displays the approved static vector icon as a decorative 48px image with reserved dimensions. The main README reuses the approved transparent character artwork and links to the existing website brand guide. These are the visual identity of the main project agent, with no new persona prompt, execution owner, state indicator, controls, or public character name. The selected coding runtime and Native retain the behavior described above. The icon's bone tile works with the existing light and dark themes, and no motion is added. Asset-byte comparison, the affected JSX/CSS, and the existing empty-state contract are the review evidence. Browser validation and the applicable checks are recorded in the pull request.
