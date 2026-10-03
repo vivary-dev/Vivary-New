@@ -17,8 +17,9 @@ const CLIENT = path.join(CORE, "dist", "client");
 
 const caseRoot = await mkdtemp(path.join(os.tmpdir(), "vivary-automation-status-"));
 const database = `file:${path.join(caseRoot, "automations.sqlite")}`;
-for (const name of ["DEPLOY_PRIME_URL", "DEPLOY_URL", "URL", "APP_URL", "BETTER_AUTH_URL", "A2A_SECRET"]) {
-  delete process.env[name]; // guard:allow-env-credential - Removes fixed app URL and signing names. No value is read.
+for (const name of ["DEPLOY_PRIME_URL", "DEPLOY_URL", "URL", "APP_URL", "BETTER_AUTH_URL", "A2A_SECRET",
+  "AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"]) {
+  delete process.env[name]; // guard:allow-env-credential - Removes fixed app URL, signing, and timeout names. No value is read.
 }
 Object.assign(process.env, {
   APP_NAME: "Vivary",
@@ -28,9 +29,11 @@ Object.assign(process.env, {
 });
 
 const load = relative => import(pathToFileURL(path.join(CORE, "dist", relative)).href);
-const [{ defineAutomation, updateAutomation }, { recordAutomationSchedulerHealth }, { resourceGetByPath, resourcePut },
-  { buildJobResourceContent, patchJobFrontmatterFields }, { INTERRUPTED_RUN_MESSAGE }, listAutomations,
-  listRecurringJobs, { getDbExec }] = await Promise.all([
+const [{ defineAutomation, updateAutomation },
+  { acquireAutomationRunLease, recordAutomationSchedulerHealth, releaseAutomationRunLease },
+  { resourceGetByPath, resourcePut }, { buildJobResourceContent, patchJobFrontmatterFields },
+  { INTERRUPTED_RUN_MESSAGE }, listAutomations, listRecurringJobs, { getDbExec }, { listedNextRun },
+  { nextOccurrence }] = await Promise.all([
   load("automations/service.js"),
   load("jobs/scheduler-health.js"),
   load("resources/store.js"),
@@ -39,6 +42,8 @@ const [{ defineAutomation, updateAutomation }, { recordAutomationSchedulerHealth
   load("triggers/actions/list-automations.js"),
   load("jobs/actions/list-recurring-jobs.js"),
   load("db/client.js"),
+  load("jobs/next-run.js"),
+  load("jobs/cron.js"),
 ]);
 
 const owner = "owner@example.test";
@@ -130,6 +135,10 @@ test("LAST CHECKED shows the scheduler's last check for an enabled legacy recurr
 
 test("a failed scheduler health read is logged, and each list falls back to the stored value", async () => {
   await heartbeats();
+  const markedAt = Date.now() - 60_000;
+  await defineAutomation(actor, { scope: "personal", name: "running-during-failure", body: "Summarize the project.",
+    triggerType: "schedule", schedule: "* * * * *", timezone: "UTC" });
+  await patchStored("running-during-failure", { lastStatus: "running", lastRun: iso(markedAt) });
   const warnings = [];
   const originalWarn = console.warn;
   console.warn = (...args) => { warnings.push(args.map(String).join(" ")); };
@@ -146,6 +155,13 @@ test("a failed scheduler health read is logged, and each list falls back to the 
   assert.equal(lists.automations["skipped-later"].lastCheck, iso(checkedAt + 60_000));
   assert.equal(lists.jobs.legacy.lastCheck, null);
   assert.equal(warnings.filter(line => /scheduler's last check/.test(line)).length, 2, "each list logged the failure");
+  assert.equal(warnings.filter(line => /scheduler leases/.test(line)).length, 2, "each list logged the failed lease read");
+  assert.deepEqual([Date.parse(lists.automations.hourly.nextRun) > Date.now(), lists.automations.hourly.schedulerWait],
+    [true, null], "a row with no running mark lists its next run as before #140");
+  const running = lists.automations["running-during-failure"];
+  assert.deepEqual([running.nextRun, running.schedulerWait],
+    [null, { reason: "stalled-run", resumesAfter: iso(markedAt + 10 * 60_000) }],
+    "a running mark still waits on its run's time window, as if no lease were held");
 });
 
 test("LAST CHECKED ignores a heartbeat whose check failed", async () => {
@@ -187,10 +203,144 @@ test("a paused automation lists no next run, although its stored next run is in 
   assert.ok(Date.parse(rows.hourly.nextRun) > Date.now(), "an enabled automation lists a future run");
 });
 
+// Issue #140. While a lease or a running mark keeps the scheduler from acting on an entry, the list names a next run
+// only when the scheduler can meet it, at a fixed time so every schedule is deterministic.
+const waitNow = Date.UTC(2026, 9, 3, 14, 38, 13);
+const minute = 60_000;
+const at = (hour, minutes, seconds = 0) => iso(Date.UTC(2026, 9, 3, hour, minutes, seconds));
+const waitingKey = `${owner}:jobs/waiting.md`;
+const heldLease = (writtenAgo, expiresIn) => ({ writtenAt: waitNow - writtenAgo, expiresAt: waitNow + expiresIn });
+const scheduleView = ({ run, scheduler = null, hardTimeoutMs = 10 * minute } = {}) => ({ now: waitNow, hardTimeoutMs,
+  scheduler, runs: new Map(run ? [[waitingKey, run]] : []) });
+const everyMinute = { enabled: true, schedule: "* * * * *", timezone: "UTC", nextRun: iso(waitNow - minute) };
+const runningMark = { ...everyMinute, lastStatus: "running", lastRun: iso(waitNow - minute) };
+const shown = nextRun => ({ nextRun, schedulerWait: null });
+const waits = (reason, resumesAfter = null) => ({ nextRun: null, schedulerWait: { reason, resumesAfter } });
+
+test("the list names a next run only when the scheduler can meet it", () => {
+  const unscheduled = { enabled: true, timezone: "UTC", nextRun: everyMinute.nextRun };
+  for (const [what, meta, view, expected, scheduled = true] of [
+    ["an entry nothing blocks", everyMinute, {}, shown(at(14, 39))],
+    ["a paused entry", { ...everyMinute, enabled: false }, {}, shown(null)],
+    ["a live run", runningMark, { run: heldLease(30_000, 9.5 * minute) }, waits("run")],
+    ["an hourly entry under a live run", { ...runningMark, schedule: "0 * * * *" },
+      { run: heldLease(30_000, 9.5 * minute) }, shown(at(15, 0))],
+    ["a run lease not written for 3 minutes", runningMark, { run: heldLease(3 * minute, 9.5 * minute) },
+      waits("stalled-run", at(14, 47, 43))],
+    ["a stale run lease that expires inside the run's time limit", runningMark,
+      { run: heldLease(4 * minute, 6 * minute) }, waits("stalled-run", at(14, 47, 13))],
+    ["a running mark no lease covers", runningMark, {}, waits("stalled-run", at(14, 47, 13))],
+    ["a running mark under a longer run time limit", runningMark, { hardTimeoutMs: 30 * minute },
+      waits("stalled-run", at(15, 7, 13))],
+    ["a running mark with no start time", { ...everyMinute, lastStatus: "running" }, {},
+      waits("stalled-run", iso(waitNow))],
+    ["a paired host's mark, a year out", { ...runningMark, schedule: "0 0 1 1 *", executionHostId: "host-1" }, {},
+      waits("run")],
+    ["a due time 30 s after a stale lease's expiry", everyMinute, { run: heldLease(10 * minute - 17_000, 17_000) },
+      waits("stalled-run", at(14, 38, 30))],
+    ["a five-minute due time 70 s after a stale lease's expiry", { ...everyMinute, schedule: "*/5 * * * *" },
+      { run: heldLease(10 * minute - 37_000, 37_000) }, waits("stalled-run", at(14, 38, 50))],
+    ["a stored next run an edit wrote during the wait", { ...runningMark, nextRun: at(14, 41) },
+      { run: heldLease(3 * minute, 9.5 * minute) }, waits("stalled-run", at(14, 47, 43))],
+    ["a lease written exactly 90 s ago", everyMinute, { run: heldLease(90_000, 8.5 * minute) }, waits("run")],
+    ["a lease written just over 90 s ago", everyMinute, { run: heldLease(90_001, 8.5 * minute) },
+      waits("stalled-run", at(14, 46, 43))],
+    ["a live scan's scheduler lease", everyMinute, { scheduler: heldLease(30_000, 9.5 * minute) }, shown(at(14, 39))],
+    ["a dead scanner's lease", everyMinute, { scheduler: heldLease(2 * minute, 8 * minute) },
+      waits("scheduler", at(14, 46, 13))],
+    ["an hourly entry under a dead scanner's lease", { ...everyMinute, schedule: "0 * * * *" },
+      { scheduler: heldLease(2 * minute, 8 * minute) }, shown(at(15, 0))],
+    ["a running mark under a dead scanner's lease that clears later", runningMark,
+      { scheduler: heldLease(105_000, 9.5 * minute) }, waits("scheduler", at(14, 47, 43))],
+    ["an event entry under a dead scanner's lease", unscheduled, { scheduler: heldLease(2 * minute, 8 * minute) },
+      shown(at(14, 37, 13)), false],
+  ]) {
+    assert.deepEqual(listedNextRun(meta, scheduled, waitingKey, scheduleView(view)), expected, what);
+  }
+});
+
+// The tick that resets a killed run's mark lands up to 70 s after the wait ends for a launch during the wait, and
+// 70 s after a launch that comes later, so the list cannot know which tick it gets. The steps do not divide a minute,
+// so the wait ends and the phases fall at every offset from a minute boundary.
+test("a next run listed during a run's wait is the one the reset tick stores, at every tick phase", () => {
+  const occurrence = Date.UTC(2026, 9, 4, 9, 0, 0);
+  let checked = 0;
+  for (const schedule of ["* * * * *", "*/5 * * * *", "0 * * * *", "0 9 * * *"]) {
+    for (let offset = -84_000; offset <= 84_000; offset += 7_000) {
+      const killedAt = occurrence - 10 * minute + offset;
+      const lastRun = killedAt - 20_000;
+      const writtenAt = killedAt - 10_000;
+      const expiresAt = writtenAt + 10 * minute;
+      const meta = { enabled: true, schedule, timezone: "UTC", nextRun: iso(lastRun - 1_000), lastStatus: "running",
+        lastRun: iso(lastRun) };
+      for (const leased of [true, false]) {
+        const waitEnd = Math.max(leased ? expiresAt : -Infinity, lastRun + 10 * minute);
+        const listings = [];
+        for (let phase = 0; phase < 70_000; phase += 4_600) {
+          for (let now = killedAt; now < waitEnd + phase; now += 37_000) listings.push([now, waitEnd + phase]);
+        }
+        for (let launch = waitEnd; launch < waitEnd + 3 * minute; launch += 13_000) {
+          listings.push([launch, launch + 70_000]);
+        }
+        for (const [now, reset] of listings) {
+          const stores = nextOccurrence(schedule, new Date(reset), "UTC").toISOString();
+          const runs = leased && now < expiresAt ? new Map([[waitingKey, { writtenAt, expiresAt }]]) : new Map();
+          const { nextRun } = listedNextRun(meta, true, waitingKey,
+            { now, hardTimeoutMs: 10 * minute, scheduler: null, runs });
+          assert.ok(nextRun === null || nextRun === stores, `${schedule}, killed at ${iso(killedAt)}, ${leased
+            ? "leased" : "unleased"}, reset at ${iso(reset)}, listed at ${iso(now)}: ${nextRun}, the reset stores ${
+            stores}`);
+          checked += 1;
+        }
+      }
+    }
+  }
+  assert.ok(checked > 10_000, `the simulation checked ${checked} listings`);
+});
+
+test("the legacy job list shows the wait of a run lease that stopped renewing", async () => {
+  const lastRun = Date.now() - 2 * minute;
+  await resourcePut(owner, "jobs/legacy-waiting.md", buildJobResourceContent(
+    { schedule: "* * * * *", enabled: true, appId, lastStatus: "running", lastRun: iso(lastRun) }, "Check the build."));
+  const key = `${owner}:jobs/legacy-waiting.md`;
+  const leaseOwner = await acquireAutomationRunLease({ key });
+  assert.ok(leaseOwner, "this process holds the job's run lease");
+  try {
+    await getDbExec().execute({ sql: "UPDATE automation_scheduler_health SET updated_at = ? WHERE id = ?",
+      args: [Date.now() - 3 * minute, `run:${key}`] });
+    const { rows: [lease] } = await getDbExec().execute({
+      sql: "SELECT lease_expires_at FROM automation_scheduler_health WHERE id = ?", args: [`run:${key}`] });
+    const job = byName(await listRecurringJobs.default.run({ scope: "personal" }, ctx))["legacy-waiting"];
+    assert.deepEqual([job.nextRun, job.schedulerWait], [null, { reason: "stalled-run",
+      resumesAfter: iso(Math.max(Number(lease.lease_expires_at), lastRun + 10 * minute)) }]);
+  } finally {
+    await releaseAutomationRunLease({ key, owner: leaseOwner });
+  }
+});
+
+test("a running mark no lease covers lists the end of the run time limit the app sets", async () => {
+  const lastRun = Date.now() - minute;
+  await defineAutomation(actor, { scope: "personal", name: "long-limit", body: "Summarize the project.",
+    triggerType: "schedule", schedule: "* * * * *", timezone: "UTC" });
+  await patchStored("long-limit", { lastStatus: "running", lastRun: iso(lastRun) });
+  process.env.AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS = String(30 * minute); // guard:allow-env-mutation - A test-only run time limit, removed below.
+  let rows;
+  try {
+    rows = byName(await listAutomations.default.run({ scope: "personal" }, ctx));
+  } finally {
+    delete process.env.AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS; // guard:allow-env-mutation - Removes the test-only run time limit set above.
+  }
+  assert.deepEqual([rows["long-limit"].nextRun, rows["long-limit"].schedulerWait],
+    [null, { reason: "stalled-run", resumesAfter: iso(lastRun + 30 * minute) }]);
+});
+
 // Only the run list's data hook, the translation hook, the chat event helper, and the dialog frame are stubbed.
 // They are matched by the file they resolve to. The dialog frame is Radix, which renders into a portal.
 const i18nStub = `
-  export function useT() { return (key, options) => options?.defaultValue ?? key; }
+  export function useT() {
+    return (key, options) => Object.entries(options ?? {}).reduce(
+      (text, [name, value]) => text.split("{{" + name + "}}").join(String(value)), options?.defaultValue ?? key);
+  }
   export function useFormatters() { return { formatDate: value => new Date(value).toISOString() }; }`;
 const dialogStub = `
   export const Dialog = ({ open, onOpenChange, children }) => (open ? <div role="dialog">
@@ -372,7 +522,7 @@ export async function mountJobsTab(rows) {
     if (action === "list-automations") return rows[params.scope];
     if (action === "list-recurring-jobs") return rows.jobs?.[params.scope] ?? [];
     if (action === "list-automation-runs") return rows.runs ?? [];
-    if (action === "get-scheduled-trigger-status") return { available: true };
+    if (action === "get-scheduled-trigger-status") return rows.triggerStatus ?? { available: true };
     return [];
   };
   // Core's house client turns off refetch on window focus, so a hook that wants it must ask for it.
@@ -564,6 +714,67 @@ test("an open Details dialog follows the automation list when the list changes",
     rows.personal = [afterTick];
     await tab.setList("personal", [afterTick]);
     assertDetailsShow(tab.details(), afterTick, "an open Details dialog");
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("Details shows when scheduling resumes while the scheduler waits", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const resumesAfter = iso(Date.now() + 5 * 60_000);
+  const waiting = schedulerWait => ({ ...afterTick, nextRun: null, schedulerWait });
+  const rows = { personal: [afterTick], organization: [] };
+  const tab = await proof.mountJobsTab(rows);
+  try {
+    await tab.openDetails();
+    for (const [row, value, what] of [
+      [afterTick, afterTick.nextRun, "a row with no wait field"],
+      [waiting({ reason: "run", resumesAfter: null }), "After the current run finishes", "a run in progress"],
+      [waiting({ reason: "stalled-run", resumesAfter }),
+        `Scheduling resumes after ${resumesAfter}, when an unfinished run times out`, "a run lease that stopped"],
+      [waiting({ reason: "scheduler", resumesAfter }),
+        `Scheduling resumes after ${resumesAfter}, when an interrupted schedule check times out`, "a dead scanner"],
+      [waiting({ reason: "scheduler", resumesAfter: iso(Date.now() - 1_000) }), "Waiting for the next schedule check",
+        "a wait whose end has passed"],
+    ]) {
+      rows.personal = [row];
+      await tab.setList("personal", [row]);
+      assert.equal(tab.details()?.["Next run"], value, what);
+    }
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("Details shows the wait while the scheduler status check fails", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const resumesAfter = iso(Date.now() + 5 * 60_000);
+  const row = { ...afterTick, nextRun: null, schedulerWait: { reason: "stalled-run", resumesAfter } };
+  const tab = await proof.mountJobsTab({ personal: [row], organization: [], failing: ["get-scheduled-trigger-status"] });
+  try {
+    assert.match(tab.text(), /check whether schedules run here/, "the scheduler status check failed");
+    await tab.openDetails();
+    assert.equal(tab.details()?.["Next run"],
+      `Scheduling resumes after ${resumesAfter}, when an unfinished run times out`);
+  } finally {
+    await tab.unmount();
+  }
+});
+
+test("Details says no scheduler runs in this deploy, whatever the wait", async t => {
+  const proof = await jobsTabProof();
+  const restoreDom = installDom();
+  t.after(restoreDom);
+  const row = { ...afterTick, nextRun: null, schedulerWait: { reason: "run", resumesAfter: null } };
+  const tab = await proof.mountJobsTab({ personal: [row], organization: [],
+    triggerStatus: { available: false, reason: "no-platform-scheduler" } });
+  try {
+    await tab.openDetails();
+    assert.match(tab.details()?.["Next run"] ?? "", /^Never\b.*no scheduler in this deploy$/);
   } finally {
     await tab.unmount();
   }
