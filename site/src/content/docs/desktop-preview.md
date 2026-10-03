@@ -281,7 +281,17 @@ once, then follows its schedule. When Vivary serves browser access, runs continu
 browser tab open.
 
 Quitting Vivary during a run ends the run, and **Details** shows it as interrupted.
-Vivary takes about 15 seconds to close. The next launch checks schedules about 70
+Builds with the [issue #138](https://github.com/vivary-dev/vivary/issues/138) fix exit
+after cleanup instead of waiting for the desktop fallback. The private `5ce5468c`
+Windows check closed an active scheduled run in 330 ms and an active webhook run
+in 310 ms, with all observed application processes gone within 583 ms and 559 ms.
+Its idle close took 4.2 seconds. These are measured runs, not a fixed close-time
+guarantee. The 15-second fallback remains configured. Windows desktop shutdown
+keeps the server alive until successful cleanup or that parent fallback, so failed
+cleanup retains the root PID needed to stop its descendants. Fresh Windows
+acceptance of that correction remains pending in the
+[acceptance receipt](https://github.com/vivary-dev/vivary/blob/dev/docs/product/multi-project/receipts/138-desktop-quit-exit.md).
+The next launch checks schedules about 70
 seconds after it starts. If Vivary was ended without quitting, for example from Task
 Manager, the run shows as running, and that automation waits up to 10 minutes after the
 next launch while your other automations run on schedule. During that wait, **Details**

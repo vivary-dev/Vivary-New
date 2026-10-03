@@ -757,8 +757,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
           pnpm --dir packages/workbench install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { throw "workbench dependency install failed" }
-      - name: creator shutdown and bytecode cache on Windows
-        run: pnpm --dir packages/workbench exec tsx --test tests/creator-shutdown.test.mjs tests/python-bytecode.test.mjs
+      - name: desktop and creator shutdown and bytecode cache on Windows
+        run: pnpm --dir packages/workbench exec tsx --test tests/desktop-server-shutdown.test.mjs tests/creator-shutdown.test.mjs tests/python-bytecode.test.mjs
       - name: core governed-context contract
         run: python -m pytest packages/core/tests/ -q
       - name: ozone governed-verification facade

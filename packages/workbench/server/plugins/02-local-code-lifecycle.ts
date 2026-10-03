@@ -26,17 +26,23 @@ const stopLocalWork = async () => {
 export default defineNitroPlugin(async (nitroApp) => {
   // guard:allow-env-credential - The dedicated CLI and desktop launchers own this process's exit.
   const standalone = process.env.VIVARY_STANDALONE_HOST === "1";
+  // guard:allow-env-credential - The Windows desktop parent owns the tree fallback.
+  const windowsDesktop = standalone && process.platform === "win32"
+    && process.env.VIVARY_DESKTOP_HOST === "1";
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
+    // Windows taskkill /T needs the server root alive to reach its descendants.
+    // Keep it alive if cleanup hangs or fails, until the desktop parent kills it.
+    if (windowsDesktop) setInterval(() => {}, 1_000);
     const cleanup = stopLocalWork().then(() =>
       standalone ? nitroApp.hooks.callHook("close") : undefined);
     void cleanup.then(() => {
       if (standalone) process.exit(0);
     }).catch(() => {
       console.error("[vivary-local-host] Shutdown did not settle.");
-      if (standalone) process.exit(1);
+      if (standalone && !windowsDesktop) process.exit(1);
     });
   };
   const removeSignalHandlers = () => {

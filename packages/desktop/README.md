@@ -213,12 +213,16 @@ the usual Electron desktop libraries, including GTK 3 and its GSettings schemas.
 
 There is one application instance per user. The window starts its own local
 server, waits for the actual app route, and uses parent-child IPC for graceful
-shutdown. The server owns its exit after local-work cleanup settles and, on
-success, Nitro closes. Cleanup failure exits with failure after all stops settle.
-The desktop keeps a 15-second process-tree kill when cleanup does not settle.
-POSIX also cleans the owned process group if the server exits. Windows has a
-live-process tree fallback. Crash cleanup on Windows still needs an actual
-platform test.
+shutdown. The server exits normally after local-work cleanup settles and Nitro
+closes. Windows desktop shutdown holds the server alive during cleanup. If a stop
+or Nitro close fails, or cleanup stays pending, the live server PID remains
+available for the desktop's existing 15-second process-tree kill. Direct CLI and
+non-Windows cleanup failures still exit with failure after all stops settle.
+POSIX also cleans the owned process group if the server exits. An unexpected
+Windows server crash can still remove the root needed by its tree fallback.
+The shutdown regression exercises controlled Windows cleanup failures with a
+real descendant and `taskkill /T /F` when run on Windows. Packaged acceptance
+and its limits belong to the [issue receipt](../../docs/product/multi-project/receipts/138-desktop-quit-exit.md).
 
 ## Windows x64 portable preview
 
